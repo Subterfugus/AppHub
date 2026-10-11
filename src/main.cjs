@@ -10,6 +10,7 @@ async function loadIcons(){if(loadingIcons||!library)return;loadingIcons=true;le
 if(changed){library.save('library.json',library.state);if(win&&!win.isDestroyed())win.webContents.send('apphub:change',library.snapshot());}loadingIcons=false;}
 function handle(name,fn){ipcMain.handle('apphub:'+name,async(e,...args)=>{if(e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw new Error('Untrusted caller');return fn(...args);});}
 function configureEngines(){ai=new LocalSearch({models:modelsRoot,data:dataRoot,config:models.config('embedding'),onStatus:s=>broadcast({ai:s})});reasoner=new LocalReasoner({models:modelsRoot,runtime:runtimeRoot,config:models.config('reasoning')||{name:'Interpretation disabled'},onStatus:s=>broadcast({reasoner:s})});broadcast({ai:ai.state,reasoner:reasoner.state,models:models.snapshot()});}
+function validateSearchModels(){if(models.validateActive()){ai.stop();reasoner.stop();configureEngines();models.validateActive();return models.warning;}}
 async function probeModel(profile,settings){
  if(profile.bytes>require('node:os').freemem()*.6)throw new Error('Not enough memory is free for a safe model check. Close other apps or choose a smaller model.');
  const config=models.config(profile.role,profile,settings);const worker=modelProbe=profile.role==='embedding'?new LocalSearch({models:modelsRoot,data:path.join(dataRoot,'model-checks'),config}):new LocalReasoner({models:modelsRoot,runtime:runtimeRoot,config});
@@ -20,7 +21,7 @@ async function probeModel(profile,settings){
 async function start(){
  const data=dataRoot=process.env.APPHUB_TEST_DATA||app.getPath('userData');library=new Library(data,broadcast);
  modelsRoot=app.isPackaged?path.join(process.resourcesPath,'models'):path.join(__dirname,'../models');runtimeRoot=app.isPackaged?path.join(process.resourcesPath,'runtime'):path.join(__dirname,'../runtime');
- models=new ModelStore({data,models:modelsRoot,onChange:s=>broadcast({models:s}),probe:probeModel});configureEngines();
+ models=new ModelStore({data,models:modelsRoot,onChange:s=>broadcast({models:s}),probe:probeModel});try{await models.prepareBuiltinEmbedding();}catch{}configureEngines();
  handle('snapshot',()=>({...library.snapshot(),ai:ai.state,reasoner:reasoner.state,models:models.snapshot(),appVersion:app.getVersion(),dataDirectory:data}));
  handle('scan',async()=>{await library.scan();return library.checkPackages();});handle('packages',()=>library.checkPackages());
  handle('search',async(query,semantic=true)=>{
@@ -28,11 +29,11 @@ async function start(){
   const seq=++searchSequence;if(query!==lastSearchQuery){lastSearchQuery=query;if(reasoner.pending.size)reasoner.stop();if(ai.pending.size)ai.stop();}
   const items=library.all().filter(a=>!a.hidden);if(!query.trim())return {items,mode:'browse',ai:ai.state,reasoner:reasoner.state};
   let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,reasoningWarning=null,reasoning=false;
-  if(semantic&&library.prefs.aiEnabled&&!models.busy)try{scores=await ai.search(query,items.map(a=>({id:a.id,text:document(a)})));}catch(e){warning=e.message;}
+  if(semantic&&library.prefs.aiEnabled&&!models.busy)try{warning=validateSearchModels()||warning;scores=await ai.search(query,items.map(a=>({id:a.id,text:document(a)})));}catch(e){warning=e.message;}
   let ranked=rank(query,items,scores);
   if(seq===searchSequence&&semantic&&library.prefs.aiEnabled&&!models.busy&&models.active.reasoning!=='off'&&ranked.length&&shouldInterpret(query,ranked)){
    broadcast({searchPreview:{query,items:ranked}});
-   try{const interpreted=await reasoner.interpret(query,ranked.slice(0,10).map(a=>({...a,searchText:document(a)})));if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
+   try{warning=validateSearchModels()||warning;const interpreted=await reasoner.interpret(query,ranked.slice(0,10).map(a=>({...a,searchText:document(a)})));if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
    catch(e){if(seq===searchSequence)reasoningWarning=e.message;}
   }
   if(seq===searchSequence&&ai.worker&&!ai.pending.size)ai.arm();

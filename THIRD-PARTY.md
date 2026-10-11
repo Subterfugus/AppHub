@@ -2,7 +2,7 @@
 
 AppHub bundles Electron (MIT), Chromium and associated third-party components (see LICENSE.electron.txt and LICENSES.chromium.html beside AppHub.exe), Transformers.js 4.3.1 (Apache-2.0), ONNX Runtime (MIT), and their npm dependencies. Dependency versions are recorded in package-lock.json; their license files accompany their modules in resources/app.asar or resources/app.asar.unpacked.
 
-The local embedding model is Xenova/all-MiniLM-L6-v2, an ONNX conversion/quantization of sentence-transformers/all-MiniLM-L6-v2. Model repository: https://huggingface.co/Xenova/all-MiniLM-L6-v2 . License: Apache License 2.0. The bundled quantized ONNX weights and tokenizer/config files are unmodified downloads. The Apache 2.0 license text accompanies the model.
+The local embedding model is Xenova/all-MiniLM-L6-v2, an ONNX conversion/quantization of sentence-transformers/all-MiniLM-L6-v2. Model repository: https://huggingface.co/Xenova/all-MiniLM-L6-v2 at revision 751bff37182d3f1213fa05d7196b954e230abad9. License: Apache License 2.0. The bundled quantized ONNX weights and tokenizer/config files are unmodified downloads. Exact file sizes and SHA256 checksums are recorded in scripts/prepare-model.mjs. The Apache 2.0 license text accompanies the model.
 
 The Windows Package Manager client and installed third-party applications are not redistributed by AppHub. Their own publishers' terms apply to their downloads and installations. Displayed app icons and names are read locally from installed software.
 

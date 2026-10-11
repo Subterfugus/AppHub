@@ -20,3 +20,36 @@ test('invalid files never create a profile or call compatibility probe',async t=
 test('remove only forgets inactive custom entries and leaves model files intact',async t=>{const f=fixture(t);await f.store.add('embedding',f.embedding);const id=f.store.profiles.at(-1).id;await f.store.activate('embedding',id);assert.throws(()=>f.store.remove(id),/inactive custom/);f.store.reset();f.store.remove(id);assert.equal(f.store.profiles.some(p=>p.id===id),false);assert.ok(fs.existsSync(path.join(f.embedding,'onnx/model_quantized.onnx')));assert.throws(()=>f.store.remove('embedding:minilm'),/inactive custom/);});
 
 test('each role applies only its own validated settings',async t=>{const f=fixture(t);await f.store.activate('embedding','embedding:minilm',{threads:8,context:8192,queryPrefix:'query: ',documentPrefix:'passage: '});assert.equal(f.store.settings.threads,4);assert.equal(f.store.settings.context,4096);assert.equal(f.store.settings.queryPrefix,'query: ');await f.store.activate('reasoning','reasoning:qwen3',{threads:2,context:2048,queryPrefix:'untested',documentPrefix:'untested'});assert.equal(f.store.settings.threads,2);assert.equal(f.store.settings.context,2048);assert.equal(f.store.settings.queryPrefix,'query: ');assert.equal(f.store.settings.documentPrefix,'passage: ');});
+
+test('runtime validation falls back before changed custom weights can reuse their cache',async t=>{
+ const f=fixture(t);await f.store.add('embedding',f.embedding);const id=f.store.profiles.at(-1).id;await f.store.activate('embedding',id);const customKey=f.store.config('embedding').cacheKey;
+ assert.equal(f.store.validateActive(),false);fs.appendFileSync(path.join(f.embedding,'onnx/model_quantized.onnx'),'replacement');
+ assert.equal(f.store.validateActive(),true);assert.equal(f.store.active.embedding,'embedding:minilm');assert.notEqual(f.store.config('embedding').cacheKey,customKey);assert.match(f.store.warning,/active custom model.*changed/i);assert.equal(f.make().active.embedding,'embedding:minilm');assert.equal(f.store.validateActive(),false);
+ await f.store.activate('embedding',id);assert.notEqual(f.store.config('embedding').cacheKey,customKey);assert.equal(f.store.validateActive(),false);
+});
+
+test('runtime validation detects missing tokenizer and newly added model assets',async t=>{
+ for(const change of [folder=>fs.unlinkSync(path.join(folder,'tokenizer.json')),folder=>fs.writeFileSync(path.join(folder,'tokenizer_config.json'),'{}'),folder=>fs.writeFileSync(path.join(folder,'onnx/weights.bin'),'external tensor data')]){
+  const f=fixture(t);await f.store.add('embedding',f.embedding);await f.store.activate('embedding',f.store.profiles.at(-1).id);change(f.embedding);assert.equal(f.store.validateActive(),true);assert.equal(f.store.active.embedding,'embedding:minilm');
+ }
+});
+
+test('external tensor files participate in fingerprint and startup validation',async t=>{
+ const f=fixture(t),weights=path.join(f.embedding,'onnx/weights.bin');fs.writeFileSync(weights,'tensor bytes');await f.store.add('embedding',f.embedding);const p=f.store.profiles.at(-1);await f.store.activate('embedding',p.id);const key=f.store.config('embedding').cacheKey;fs.appendFileSync(weights,'replacement');assert.equal(f.make().active.embedding,'embedding:minilm');await f.store.activate('embedding',p.id);assert.notEqual(f.store.config('embedding').cacheKey,key);
+});
+
+test('runtime reasoning validation falls back while interpretation off stays off',async t=>{
+ const f=fixture(t),file=path.join(f.root,'chat.gguf'),bytes=Buffer.alloc(1048576);bytes.write('GGUF');bytes.writeUInt32LE(3,4);fs.writeFileSync(file,bytes);await f.store.add('reasoning',file);await f.store.activate('reasoning',f.store.profiles.at(-1).id);fs.unlinkSync(file);assert.equal(f.store.validateActive(),true);assert.equal(f.store.active.reasoning,'reasoning:qwen3');await f.store.activate('reasoning','off');assert.equal(f.store.validateActive(),false);assert.equal(f.store.active.reasoning,'off');
+});
+
+test('bundled embedding cache identity reflects actual bytes and avoids unchanged rehashing',async t=>{
+ const f=fixture(t),folder=path.join(f.models,'Xenova/all-MiniLM-L6-v2');fs.mkdirSync(path.dirname(folder),{recursive:true});fs.cpSync(f.embedding,folder,{recursive:true});assert.equal(await f.store.prepareBuiltinEmbedding(),true);const key=f.store.config('embedding').cacheKey;assert.equal(await f.store.prepareBuiltinEmbedding(),false);fs.appendFileSync(path.join(folder,'onnx/model_quantized.onnx'),'new bundled release');assert.equal(await f.store.prepareBuiltinEmbedding(),true);assert.notEqual(f.store.config('embedding').cacheKey,key);
+});
+
+test('runtime fallback remains actionable when preferences cannot be persisted',async t=>{
+ const f=fixture(t);await f.store.add('embedding',f.embedding);await f.store.activate('embedding',f.store.profiles.at(-1).id);fs.unlinkSync(path.join(f.embedding,'tokenizer.json'));f.store.save=()=>{throw new Error('Disk is full');};assert.equal(f.store.validateActive(),true);assert.equal(f.store.active.embedding,'embedding:minilm');assert.match(f.store.warning,/could not be saved/);assert.equal(f.store.validateActive(),false);
+});
+
+test('changed bundled weights cannot run against the startup cache identity',async t=>{
+ const f=fixture(t),folder=path.join(f.models,'Xenova/all-MiniLM-L6-v2');fs.mkdirSync(path.dirname(folder),{recursive:true});fs.cpSync(f.embedding,folder,{recursive:true});await f.store.prepareBuiltinEmbedding();fs.appendFileSync(path.join(folder,'onnx/model_quantized.onnx'),'changed in session');assert.throws(()=>f.store.validateActive(),/Restart AppHub/);assert.match(f.store.warning,/bundled search model changed/);await f.store.prepareBuiltinEmbedding();assert.equal(f.store.validateActive(),false);
+});

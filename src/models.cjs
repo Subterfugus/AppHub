@@ -6,6 +6,12 @@ function options(value={},previous=DEFAULTS){
 }
 async function digest(files){const hash=crypto.createHash('sha256');for(const file of files){hash.update(path.basename(file));for await(const chunk of fs.createReadStream(file))hash.update(chunk);}return hash.digest('hex');}
 function readJSON(file){const stat=fs.statSync(file);if(stat.size>8*1024*1024)throw new Error(path.basename(file)+' is too large');return JSON.parse(fs.readFileSync(file,'utf8'));}
+function embeddingFiles(location,dtype){
+ const names={q8:'model_quantized.onnx',fp32:'model.onnx',fp16:'model_fp16.onnx'};
+ const files=['config.json','tokenizer.json',...['tokenizer_config.json','special_tokens_map.json'].filter(file=>fs.existsSync(path.join(location,file)))].map(file=>path.join(location,file));
+ const visit=directory=>{for(const entry of fs.readdirSync(directory,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){const file=path.join(directory,entry.name);if(entry.isDirectory())visit(file);else if(!entry.name.endsWith('.onnx')||file===path.join(location,'onnx',names[dtype]))files.push(file);}};
+ visit(path.join(location,'onnx'));return files;
+}
 async function inspect(role,location){
  if(!['embedding','reasoning'].includes(role)||typeof location!=='string'||!path.isAbsolute(location))throw new Error('Choose a local model using the file picker');
  location=fs.realpathSync(location);const stat=fs.statSync(location);let files,dtype;
@@ -17,12 +23,12 @@ async function inspect(role,location){
   const tokenizer=path.join(location,'tokenizer.json');if(!fs.statSync(tokenizer).isFile())throw new Error('The model folder needs tokenizer.json');
   const candidates=[['q8','model_quantized.onnx'],['fp32','model.onnx'],['fp16','model_fp16.onnx']];const selected=candidates.find(([,file])=>fs.existsSync(path.join(location,'onnx',file)));if(!selected)throw new Error('The folder needs onnx/model_quantized.onnx or onnx/model.onnx');dtype=selected[0];
   const model=path.join(location,'onnx',selected[1]);if(!fs.statSync(model).isFile()||fs.statSync(model).size<1024)throw new Error('The ONNX model file is incomplete');files=[config,tokenizer,model];for(const file of ['tokenizer_config.json','special_tokens_map.json'])if(fs.existsSync(path.join(location,file)))files.push(path.join(location,file));
-  for(const file of fs.readdirSync(path.join(location,'onnx')))if(/\.(?:onnx_data|data)$/i.test(file))files.push(path.join(location,'onnx',file));
+  files=embeddingFiles(location,dtype);
  }
  const bytes=files.reduce((n,file)=>n+fs.statSync(file).size,0);if(bytes>os.totalmem()*.45)throw new Error('This model is too large for this PC');
  const fingerprint=await digest(files);return {location,bytes,dtype,fingerprint,stamp:files.map(file=>({file,size:fs.statSync(file).size,mtime:fs.statSync(file).mtimeMs}))};
 }
-function unchanged(profile){try{return profile.builtin||profile.stamp?.every(s=>{const f=fs.statSync(s.file);return f.isFile()&&f.size===s.size&&f.mtimeMs===s.mtime;});}catch{return false;}}
+function unchanged(profile){try{if(profile.builtin&&!profile.stamp)return true;if(!profile.stamp?.length)return false;if(profile.role==='embedding'){const files=embeddingFiles(profile.location,profile.dtype);if(files.length!==profile.stamp.length||files.some((file,i)=>file!==profile.stamp[i].file))return false;}return profile.stamp.every(s=>{const f=fs.statSync(s.file);return f.isFile()&&f.size===s.size&&f.mtimeMs===s.mtime;});}catch{return false;}}
 class ModelStore{
  constructor({data,models,onChange=()=>{},probe}){
   Object.assign(this,{data,models,onChange,probe});fs.mkdirSync(data,{recursive:true});this.file=path.join(data,'models.json');this.busy=false;this.message='';this.warning=null;
@@ -34,6 +40,12 @@ class ModelStore{
  }
  snapshot(){return {profiles:this.profiles.map(p=>({...p,stamp:undefined,fingerprint:undefined})),active:{...this.active},settings:{...this.settings},busy:this.busy,message:this.message,warning:this.warning};}
  notify(){this.onChange(this.snapshot());}
+ validateActive(){
+  const bundledEmbedding=this.builtins.find(p=>p.role==='embedding');if(this.active.embedding===bundledEmbedding.id&&bundledEmbedding.stamp&&!unchanged(bundledEmbedding)){this.warning='The bundled search model changed while AppHub was running. Restart AppHub before using local AI search.';this.notify();throw new Error(this.warning);}
+  let changed=false;for(const role of ['embedding','reasoning']){if(role==='reasoning'&&this.active[role]==='off')continue;const profile=this.profiles.find(p=>p.role===role&&p.id===this.active[role]);if(profile&&!profile.builtin&&!unchanged(profile)){this.active[role]=this.builtins.find(p=>p.role===role).id;changed=true;}}
+  if(changed){this.warning='An active custom model is missing or changed. The bundled model is active; test the replacement to use it again.';try{this.save();}catch{this.warning+=' The fallback could not be saved, so it will be checked again when AppHub restarts.';}this.notify();}return changed;
+ }
+ async prepareBuiltinEmbedding(){const profile=this.builtins.find(p=>p.role==='embedding');if(profile.stamp&&unchanged(profile))return false;const inspected=await inspect('embedding',profile.location);Object.assign(profile,inspected);return true;}
  save(){const temp=this.file+'.tmp';fs.writeFileSync(temp,JSON.stringify({profiles:this.profiles.filter(p=>!p.builtin),active:this.active,settings:this.settings},null,2));fs.renameSync(temp,this.file);}
  async operation(message,fn){if(this.busy)throw new Error('A model operation is already running');this.busy=true;this.message=message;this.notify();try{await fn();}finally{this.busy=false;this.notify();}return this.snapshot();}
  async add(role,location){return this.operation('Checking the local model files…',async()=>{const inspected=await inspect(role,location);const id=`model:${role}:${inspected.fingerprint.slice(0,16)}`;const existing=this.profiles.find(p=>p.id===id);if(existing)Object.assign(existing,inspected);else{if(this.profiles.length>=32)throw new Error('Remove an unused model before adding another');this.profiles.push({id,role,name:path.basename(inspected.location).replace(/\.gguf$/i,'').slice(0,120),builtin:false,...inspected});}this.message='Model added. Choose Test & use to check compatibility.';this.save();return this.snapshot();});}

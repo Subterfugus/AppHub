@@ -1,0 +1,27 @@
+// Hidden Chromium renderer regression with synthetic APIs; no desktop interaction.
+const {app,BrowserWindow}=require('electron');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),scratch=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'apphub-ui-regression-'));
+fs.mkdirSync(scratch,{recursive:true});app.setPath('userData',path.join(scratch,'electron'));
+const preload=path.join(scratch,'synthetic-preload.cjs');
+fs.writeFileSync(preload,`const {contextBridge}=require('electron');
+const items=[{id:'one',name:'Example',kind:'app',category:'Utilities',source:'Portable',launch:{type:'exe',target:'X:\\\\Example.exe'},packageId:'Example.Tool',packageSource:'winget'},{id:'two',name:'Second',kind:'app',category:'Utilities',source:'Portable',launch:{type:'exe',target:'X:\\\\Second.exe'}}];
+let state={items,prefs:{folders:[]},jobs:[],warnings:[]},change,finish;
+contextBridge.exposeInMainWorld('apphub',{snapshot:async()=>state,onChange:fn=>{change=fn;},cancelSearch:async()=>{},search:async(q,semantic)=>semantic?new Promise(resolve=>{finish=()=>resolve({items:state.items});}):{items:state.items},importLibrary:async()=>({packages:[{id:'Example.Tool',source:'winget',name:'Example',installed:true}]}),catalog:async()=>[],windowAction:()=>{}});
+contextBridge.exposeInMainWorld('audit',{emit:next=>{state={...state,...next};change(state);},preview:()=>change({searchPreview:{query:'example',items:state.items}}),finish:()=>finish?.()});`);
+let win;const checks=[];const js=code=>win.webContents.executeJavaScript(code,true);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function check(name,fn){await fn();checks.push(name);console.log('PASS '+name);}
+app.whenReady().then(async()=>{try{
+ win=new BrowserWindow({show:false,webPreferences:{preload,contextIsolation:true,nodeIntegration:false,sandbox:true,offscreen:true}});
+ await win.loadFile(path.join(root,'src/ui/index.html'));await delay(100);
+ await check('keyboard details focus and Escape return',async()=>{await js(`const c=document.querySelector('.app-card');c.focus();c.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);assert.equal(await js('document.activeElement.id'),'launch');await js(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);assert.equal(await js('document.activeElement.dataset.id'),'one');});
+ await check('snapshot preserves favorite focus',async()=>{await js(`document.querySelector('[data-star="one"]').focus();audit.emit({lastScan:new Date().toISOString()});`);assert.equal(await js('document.activeElement.dataset.star'),'one');});
+ await check('catalog draft selection survives snapshot',async()=>{await js(`document.querySelector('[data-view="discover"]').click();const i=document.querySelector('#catalog-query');i.value='unfinished draft';i.dispatchEvent(new Event('input'));i.focus();i.setSelectionRange(2,6);audit.emit({lastScan:new Date().toISOString()});`);assert.deepEqual(await js(`({id:document.activeElement.id,value:document.activeElement.value,start:document.activeElement.selectionStart,end:document.activeElement.selectionEnd})`),{id:'catalog-query',value:'unfinished draft',start:2,end:6});});
+ await check('stale imported installed flag yields current missing status and named dialog',async()=>{await js(`document.querySelector('[data-view="reproduce"]').click();audit.emit({items:[]});document.querySelector('#import').click();`);await delay(30);assert.equal(await js(`document.querySelector('[data-plan-id]').disabled`),false);assert.equal(await js(`document.querySelector('#modal').getAttribute('aria-labelledby')`),'modal-title');assert.equal(await js(`document.querySelector('#modal-title').textContent`),'Recreate your library');await js(`document.querySelector('#cancel-modal').click();`);});
+ await check('semantic preview and final results preserve card focus',async()=>{await js(`audit.emit({items:[{id:'one',name:'Example',kind:'app',category:'Utilities',source:'Portable',launch:{type:'exe',target:'X:\\\\Example.exe'}}]});document.querySelector('[data-view="all"]').click();const searchInput=document.querySelector('#search');searchInput.value='example';searchInput.dispatchEvent(new Event('input'));`);await delay(400);await js(`document.querySelector('.app-card').focus();audit.preview();`);assert.equal(await js('document.activeElement.dataset.id'),'one');await js('audit.finish()');await delay(50);assert.equal(await js('document.activeElement.dataset.id'),'one');});
+ await check('removed focused search result returns focus to search',async()=>{await js(`audit.emit({items:[]});`);assert.equal(await js('document.activeElement.id'),'search');});
+ await check('unavailable portable entry cannot launch',async()=>{await js(`document.querySelector('#search').value='';document.querySelector('#search').dispatchEvent(new Event('input'));audit.emit({items:[{id:'one',name:'Example',kind:'app',category:'Utilities',source:'Portable',launch:{type:'exe',target:'X:\\\\Example.exe'},unavailable:true,unavailableReason:'Test folder unavailable'}]});document.querySelector('.app-card').click();`);assert.equal(await js(`document.querySelector('#launch').disabled`),true);assert.match(await js(`document.querySelector('#details').textContent`),/Test folder unavailable/);});
+ console.log(JSON.stringify({passed:true,checks,scope:'Hidden synthetic renderer; no real packages, models, dialogs, or desktop control.'}));app.exit(0);
+ }catch(error){console.error(error);app.exit(1);}});
+

@@ -80,6 +80,20 @@ app.whenReady().then(async()=>{
   const before=(await api('snapshot')).models.active;const fake=path.join(data,'invalid.gguf');fs.writeFileSync(fake,Buffer.alloc(1048576));fileToOpen=fake;await assert.rejects(api('addModel','reasoning'),/supported GGUF/);
   const broken=path.join(data,'broken-embedding');fs.mkdirSync(path.join(broken,'onnx'),{recursive:true});fs.writeFileSync(path.join(broken,'config.json'),JSON.stringify({model_type:'bert'}));fs.writeFileSync(path.join(broken,'tokenizer.json'),'{}');fs.writeFileSync(path.join(broken,'onnx/model_quantized.onnx'),Buffer.alloc(2048,1));fileToOpen=broken;const added=await api('addModel','embedding'),profile=added.profiles.find(p=>p.location===fs.realpathSync(broken));assert(profile);await assert.rejects(api('activateModel','embedding',profile.id),/previous model/);assert.deepEqual((await api('snapshot')).models.active,before);await api('removeModel',profile.id);assert(fs.existsSync(broken));
  });
+ await check('Changed active custom files fall back before real inference',async()=>{
+  const previous=(await api('snapshot')).models.active.embedding;
+  const copied=path.join(data,'mutable-embedding');fs.cpSync(path.join(root,'.qa/extra-models/paraphrase-MiniLM-L3-v2'),copied,{recursive:true});
+  // Change identity before registration so this independent copy gets its own profile.
+  fs.appendFileSync(path.join(copied,'config.json'),'\n');fileToOpen=copied;
+  const added=await api('addModel','embedding'),profile=added.profiles.find(p=>p.location===fs.realpathSync(copied));assert(profile);
+  await api('activateModel','embedding',profile.id);assert.equal((await api('snapshot')).models.active.embedding,profile.id);
+  fs.appendFileSync(path.join(copied,'tokenizer_config.json'),'\n');
+  const result=await api('search','blue light',true),after=await api('snapshot');
+  assert.equal(after.models.active.embedding,'embedding:minilm');assert.match(result.warning,/custom model.*changed/);
+  assert.equal(result.items[0].name,'Night light');assert.equal(after.ai.model,'MiniLM L6 · bundled');assert(after.ai.pid);
+  await api('activateModel','embedding',previous);await api('removeModel',profile.id);fileToOpen=undefined;
+  return {fallback:'embedding:minilm',semanticSearchSucceeded:true};
+ });
  await check('Renderer can disable interpretation and restore bundled defaults',async()=>{
   await js(`document.querySelector('#model-reasoning').value='off';document.querySelector('#model-reasoning').dispatchEvent(new Event('change'));document.querySelector('[data-model-use="reasoning"]').click();`);await waitFor(async()=>{const s=await api('snapshot');return !s.models.busy&&s.models.active.reasoning==='off';});const off=await api('snapshot');assert.equal(off.reasoner.pid,null);assert.notEqual(off.models.active.embedding,'embedding:minilm');
   await js(`document.querySelector('#models-reset').click()`);await waitFor(async()=>{const s=await api('snapshot');return s.models.active.embedding==='embedding:minilm'&&s.models.active.reasoning==='reasoning:qwen3';});assert.equal((await api('snapshot')).models.settings.context,4096);

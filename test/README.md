@@ -35,6 +35,7 @@ The embedding fixture includes `config.json`, `special_tokens_map.json`, `tokeni
 
 ```powershell
 npm test
+node scripts/qa-ui-audit.cjs
 node scripts/qa-model-swaps.cjs
 node scripts/qa-electron.cjs
 npm run build
