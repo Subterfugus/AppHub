@@ -1,113 +1,788 @@
-const api=window.apphub,$=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let state={items:[],prefs:{},jobs:[]},view='all',category='',selected=null,results=null,mode='grid',sort='name',query='',generation=0,searching=false,searchWarning='',searchAnswer='',searchRecommendations=[],reasoningWarning='',showHidden=false,toastTimer,modalGeneration=0,libraryPlan=null,catalogQuery='',catalogPackages=null,catalogLoading=false,catalogGeneration=0;
-let modelDraft=null,modelPending=false,modelError='';
-const answerOpening=new Set();
-const modelName=role=>role==='reasoning'&&state.models?.active?.reasoning==='off'?'Interpretation off':String((role==='embedding'?state.ai:state.reasoner)?.model||state.models?.profiles?.find(p=>p.id===state.models?.active?.[role])?.name||(role==='embedding'?'Local retrieval':'Local interpretation'));
-const nav=[['all','▦','All applications'],['favorites','☆','Favorites'],['recent','◷','Recently opened'],['settings','⚙','Windows settings'],['updates','↓','Updates'],['discover','⊕','Discover'],['reproduce','⇄','Recreate library'],['activity','≋','Activity']];
-const categories=['Development','Creative','Music & audio','Productivity','Browsers','Communication','Games','Utilities'];
-const titles={all:['Your library','Every application. One place to call home.'],favorites:['Your favorites','The things you reach for, always close at hand.'],recent:['Recently opened','Pick up where you left off.'],settings:['Windows settings','A faster way to find the right setting.'],updates:['Keep things current','Real package updates, powered by Windows Package Manager.'],discover:['Find your next tool','Search the WinGet catalog and install directly to this PC.'],reproduce:['Take your library with you','A record of your software. A plan for your next PC.'],activity:['Activity','Your package operations, with the full story attached.'],preferences:['Make yourself at home','Local search, library discovery, and your data.']};
-function toast(text,error=false){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').className='toast'+(error?' error':'');toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),error?9000:4000);}
-async function attempt(fn){try{return await fn();}catch(e){toast(e.message?.replace(/^Error invoking remote method '[^']+': Error: /,'')||String(e),true);return null;}}
-function icon(a){const colors={'Development':['#1b2f37','#8dd5e4'],'Creative':['#34263e','#d3a9ee'],'Music & audio':['#342b23','#e5bd84'],'Productivity':['#202d43','#93b6ef'],'Browsers':['#283526','#b9da84'],'Communication':['#2e2943','#b8a5ef'],'Games':['#25352e','#8acaaa'],'Windows settings':['#263345','#94b9e7']};const c=colors[a.category]||['#29313e','#a3b5d0'];const imageData=typeof a.iconData==='string'&&/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(a.iconData)?a.iconData:null;let letter=a.kind==='setting'?'⚙':a.name.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();return `<span class="app-icon" style="--icon-bg:${c[0]};--icon-color:${c[1]}">${imageData?`<img src="${esc(imageData)}" alt="">`:esc(letter)}</span>`;}
-function updateFooter(){const apps=state.items.filter(a=>a.kind==='app');$('#computer').textContent=(state.computer||'This PC')+' · Windows 11';$('#sync-status').textContent=state.scanning?'Syncing your software…':`${apps.length} applications · ${state.lastScan?'Synced '+new Date(state.lastScan).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'First sync pending'}`;$('#refresh').disabled=!!state.scanning;const ai=state.ai||{},reasoner=state.reasoner||{};$('#ai-status span').textContent=state.prefs.aiEnabled===false?'Local AI disabled':reasoner.pid||['loading','starting','thinking'].includes(reasoner.status)?reasoner.message||modelName('reasoning')+' interpreting…':ai.pid||['loading','starting','running','ready','searching'].includes(ai.status)?ai.message||'Local search ready':'Local AI asleep';$('#ai-status').title=modelName('embedding')+' retrieves matches; '+modelName('reasoning')+' interprets requests. Search stays on this PC.';}
+const api = window.apphub;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+const ICONS = {
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  list: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  star: '<polygon points="12 2.5 15.09 8.76 22 9.77 17 14.64 18.18 21.52 12 18.27 5.82 21.52 7 14.64 2 9.77 8.91 8.76"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  swap: '<path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/>',
+  pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  sync: '<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  dots: '<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
+};
+const svg = name => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+
+// Layout choices are a per-device convenience; the app works without storage.
+const stored = key => { try { return localStorage.getItem('apphub.' + key); } catch { return null; } };
+const store = (key, value) => { try { localStorage.setItem('apphub.' + key, value); } catch {} };
+
+// Each theme lists the preview colours shown in Settings: background, surface, text.
+const THEMES = [
+  {id: 'system', name: 'System'},
+  {id: 'graphite', name: 'Graphite', colors: ['#17181b', '#2a2c31', '#f1f2f4']},
+  {id: 'midnight', name: 'Midnight', colors: ['#000000', '#1c1c1e', '#f2f2f3']},
+  {id: 'ocean', name: 'Ocean', colors: ['#0b0e14', '#1f2633', '#eef1f6']},
+  {id: 'nord', name: 'Nord', colors: ['#2e3440', '#434c5e', '#eceff4']},
+  {id: 'mocha', name: 'Mocha', colors: ['#1e1e2e', '#313244', '#cdd6f4']},
+  {id: 'forest', name: 'Forest', colors: ['#121a16', '#22302a', '#e8f0ea']},
+  {id: 'light', name: 'Light', colors: ['#ffffff', '#ebebee', '#1b1c1f']},
+  {id: 'paper', name: 'Paper', colors: ['#fbf8f1', '#e9e2d3', '#2b2620']}
+];
+const ACCENTS = [['lime', 'Lime', '#c5f279'], ['blue', 'Blue', '#6aa9ff'], ['violet', 'Violet', '#b79cff'], ['rose', 'Rose', '#ff8fa3'], ['orange', 'Orange', '#ffb05c'], ['teal', 'Teal', '#5fd6c4']];
+let theme = THEMES.some(t => t.id === stored('theme')) ? stored('theme') : 'system';
+let accent = ACCENTS.some(([id]) => id === stored('accent')) ? stored('accent') : 'lime';
+function applyAppearance() {
+  const root = document.documentElement;
+  if (theme === 'system') root.removeAttribute('data-theme'); else root.dataset.theme = theme;
+  if (accent === 'lime') root.removeAttribute('data-accent'); else root.dataset.accent = accent;
+}
+applyAppearance();
+
+let state = {items: [], prefs: {}, jobs: []};
+let view = 'all', category = '', selected = null, results = null, query = '', generation = 0;
+let mode = stored('mode') === 'list' ? 'list' : 'grid';
+let sort = ['name', 'source', 'recent'].includes(stored('sort')) ? stored('sort') : 'name';
+let searching = false, searchWarning = '', searchAnswer = '', searchRecommendations = [], reasoningWarning = '';
+let showHidden = false, toastTimer, modalGeneration = 0, libraryPlan = null;
+let catalogQuery = '', catalogPackages = null, catalogLoading = false, catalogGeneration = 0;
+let modelDraft = null, modelPending = false, modelError = '';
+const answerOpening = new Set();
+const recentlyActivated = new Set();
+
+const nav = [
+  ['Library', [['all', 'grid', 'Apps'], ['favorites', 'star', 'Favorites'], ['recent', 'clock', 'Recent'], ['settings', 'sliders', 'Windows settings']]],
+  ['Packages', [['updates', 'download', 'Updates'], ['discover', 'plus', 'Install apps'], ['reproduce', 'swap', 'Export & restore'], ['activity', 'pulse', 'Activity']]]
+];
+const categories = ['Development', 'Creative', 'Music & audio', 'Productivity', 'Browsers', 'Communication', 'Games', 'Utilities'];
+const titles = {all: 'Apps', favorites: 'Favorites', recent: 'Recent', settings: 'Windows settings', updates: 'Updates', discover: 'Install apps', reproduce: 'Export & restore', activity: 'Activity', preferences: 'Settings'};
+
+const item = id => state.items.find(a => a.id === id);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const cleanError = e => (e?.message || String(e)).replace(/^Error invoking remote method '[^']+': Error: /, '');
+const modelName = role => role === 'reasoning' && state.models?.active?.reasoning === 'off'
+  ? 'Interpretation off'
+  : String((role === 'embedding' ? state.ai : state.reasoner)?.model || state.models?.profiles?.find(p => p.id === state.models?.active?.[role])?.name || (role === 'embedding' ? 'Local retrieval' : 'Local interpretation'));
+const modelDescription = () => `${modelName('embedding')} finds apps and Windows settings by meaning. `
+  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} interprets longer requests and explains the best match.`)
+  + ' Names, partial names and typos work either way. Queries and your software list stay on this PC.';
+
+function toast(text, error = false) {
+  clearTimeout(toastTimer);
+  $('#toast').textContent = text;
+  $('#toast').className = 'toast' + (error ? ' error' : '');
+  toastTimer = setTimeout(() => $('#toast').classList.add('hidden'), error ? 9000 : 4000);
+}
+async function attempt(fn) {
+  try { return await fn(); } catch (e) { toast(cleanError(e), true); return null; }
+}
+
+function icon(a) {
+  const imageData = typeof a.iconData === 'string' && /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(a.iconData) ? a.iconData : null;
+  if (imageData) return `<span class="app-icon"><img src="${esc(imageData)}" alt=""></span>`;
+  return `<span class="app-icon fallback">${a.kind === 'setting' ? svg('sliders') : esc((a.name.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase())}</span>`;
+}
+
+const packageName = p => state.items.find(a => a.packageId && a.packageId === p?.id)?.name || p?.id || '';
+// Where a running job is: packages finished, the one in flight, and its WinGet stage.
+function jobProgress(j) {
+  const done = (j.results || []).length, total = j.packages.length;
+  const log = j.log || '', tail = log.slice(Math.max(0, log.lastIndexOf('\n> winget')));
+  const stage = /Starting package (install|uninstall)/.test(tail) ? 'Installing' : /Downloading/.test(tail) ? 'Downloading' : 'Preparing';
+  return {done, total, stage, position: Math.min(done + 1, total), name: packageName(j.packages[Math.min(done, total - 1)])};
+}
+function updateJobStatus() {
+  const running = state.jobs.find(j => j.status === 'running'), queued = state.jobs.filter(j => j.status === 'queued').length;
+  const el = $('#job-status');
+  el.classList.toggle('hidden', !running && !queued);
+  if (running) {
+    const p = jobProgress(running);
+    el.querySelector('span').textContent = `${running.action === 'upgrade' ? 'Updating' : 'Installing'} ${p.position} of ${p.total} · ${p.name}${queued ? ` · ${queued} queued` : ''}`;
+  } else if (queued) el.querySelector('span').textContent = plural(queued, 'operation') + ' queued';
+}
+
+function updateFooter() {
+  updateJobStatus();
+  const apps = state.items.filter(a => a.kind === 'app');
+  const synced = state.lastScan ? 'Synced ' + new Date(state.lastScan).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : 'Not synced yet';
+  $('#sync-status').textContent = state.scanning ? 'Syncing…' : `${plural(apps.length, 'app')} · ${synced}`;
+  $('#refresh').disabled = !!state.scanning;
+  const ai = state.ai || {}, reasoner = state.reasoner || {};
+  const reasoning = reasoner.pid || ['loading', 'starting', 'thinking'].includes(reasoner.status);
+  const retrieving = ai.pid || ['loading', 'starting', 'running', 'ready', 'searching'].includes(ai.status);
+  const off = state.prefs.aiEnabled === false;
+  $('#ai-status span').textContent = off ? 'Local AI off'
+    : reasoning ? reasoner.message || modelName('reasoning') + ' interpreting…'
+    : retrieving ? ai.message || 'Local search ready'
+    : 'Local AI asleep';
+  $('#ai-status').classList.toggle('active', !off && !!(reasoning || retrieving));
+  $('#ai-status').title = `${modelName('embedding')} finds matches; ${modelName('reasoning')} interprets requests. Click for settings.`;
+}
 
 // Preserve keyboard position and unfinished input during background updates.
-function retainFocus(renderView){
- const active=document.activeElement;
- const marker=active&&active!==document.body&&active!==document.documentElement?{id:active.id,tag:active.tagName,data:{...active.dataset},card:active.closest('.app-card')?.dataset.id,value:active.matches('input:not([type=checkbox]):not([type=radio]),textarea')?active.value:undefined,start:active.selectionStart,end:active.selectionEnd}:null;
- renderView();
- if(!marker||active.isConnected)return;
- let replacement=marker.id?document.getElementById(marker.id):null;
- if(!replacement){const candidates=[...document.querySelectorAll(marker.card?'.app-card,[data-star]':'button,input,select,textarea,[tabindex]')];replacement=candidates.find(el=>el.tagName===marker.tag&&Object.entries(marker.data).every(([key,value])=>el.dataset[key]===value)&&Object.keys(marker.data).length>0);}
- if(!replacement&&marker.card)replacement=$('#app-list .app-card')||$('#search');
- if(marker.data.answerOpen&&replacement?.disabled)replacement=[...document.querySelectorAll('[data-answer-inspect]')].find(el=>el.dataset.answerInspect===marker.data.answerOpen)||$('#search');
- if(!replacement&&(marker.data.answerOpen||marker.data.answerInspect))replacement=$('#search');
- if(!replacement||replacement.disabled)return;
- if(marker.value!==undefined&&replacement.matches('input,textarea'))replacement.value=marker.value;
- replacement.focus({preventScroll:true});
- if(marker.start!=null&&replacement.setSelectionRange)try{replacement.setSelectionRange(marker.start,marker.end);}catch{}
+function retainFocus(renderView) {
+  const active = document.activeElement;
+  const marker = active && active !== document.body && active !== document.documentElement ? {
+    id: active.id, tag: active.tagName, data: {...active.dataset}, card: active.closest('.app-card')?.dataset.id,
+    value: active.matches('input:not([type=checkbox]):not([type=radio]),textarea') ? active.value : undefined,
+    start: active.selectionStart, end: active.selectionEnd
+  } : null;
+  renderView();
+  if (!marker || active.isConnected) return;
+  let replacement = marker.id ? document.getElementById(marker.id) : null;
+  if (!replacement) {
+    const candidates = [...document.querySelectorAll(marker.card ? '.app-card,[data-star],[data-info]' : 'button,input,select,textarea,[tabindex]')];
+    replacement = candidates.find(el => el.tagName === marker.tag && Object.entries(marker.data).every(([key, value]) => el.dataset[key] === value) && Object.keys(marker.data).length > 0);
+  }
+  if (!replacement && marker.card) replacement = $('#app-list .app-card') || $('#search');
+  if (marker.data.answerOpen && replacement?.disabled) replacement = [...document.querySelectorAll('[data-answer-inspect]')].find(el => el.dataset.answerInspect === marker.data.answerOpen) || $('#search');
+  if (!replacement && (marker.data.answerOpen || marker.data.answerInspect)) replacement = $('#search');
+  if (!replacement || replacement.disabled) return;
+  if (marker.value !== undefined && replacement.matches('input,textarea')) replacement.value = marker.value;
+  replacement.focus({preventScroll: true});
+  if (marker.start != null && replacement.setSelectionRange) try { replacement.setSelectionRange(marker.start, marker.end); } catch {}
 }
-function render(){retainFocus(renderContent);}
-function renderLibrary(){retainFocus(renderLibraryContent);}
-function renderActivity(){retainFocus(renderActivityContent);}
-function renderModels(){retainFocus(renderModelsContent);}
-function focusDetails(){($('#launch:not(:disabled)')||$('#close-detail'))?.focus();}
+function render() { retainFocus(renderContent); }
+function renderLibrary() { retainFocus(renderLibraryContent); }
+function renderActivity() { retainFocus(renderActivityContent); }
+function renderModels() { retainFocus(renderModelsContent); }
+function focusDetails() { ($('#launch:not(:disabled)') || $('#close-detail'))?.focus(); }
 
-function renderNav(){for(const [id,symbol,label]of nav){const count=id==='all'?state.items.filter(a=>a.kind==='app'&&!a.hidden).length:id==='favorites'?state.items.filter(a=>a.favorite&&!a.hidden).length:id==='updates'?state.items.filter(a=>a.available).length:id==='settings'?state.items.filter(a=>a.kind==='setting').length:null;const el=document.createElement('button');el.className='nav-item'+(view===id&&!category?' active':'');el.dataset.view=id;el.innerHTML=`<span class="nav-symbol">${symbol}</span><span class="nav-text">${label}</span>${count!==null?`<span class="count">${count}</span>`:''}`;$('#navigation').append(el);}for(const c of categories){const n=state.items.filter(a=>a.category===c&&!a.hidden).length;if(!n)continue;const el=document.createElement('button');el.className='nav-item'+(category===c?' active':'');el.dataset.category=c;el.innerHTML=`<span class="collection-dot"></span><span class="nav-text">${c}</span><small>${n}</small>`;$('#categories').append(el);}}
-function navigate(v,c=''){if(searching)api.cancelSearch?.().catch(()=>{});clearTimeout(debounce);view=v;category=c;query='';$('#search').value='';results=null;selected=null;generation++;searching=false;searchWarning='';searchAnswer='';searchRecommendations=[];reasoningWarning='';render();$('#content').scrollTop=0;}
-function renderContent(){updateFooter();$('#navigation').replaceChildren();$('#categories').replaceChildren();renderNav();const isSearch=!!query.trim();const [title,subtitle]=category?[category,'A collection from your software library.']:titles[view]||titles.all;$('#page-header').innerHTML=`<div><div class="eyebrow">${isSearch?'FIND YOUR FLOW':view==='all'&&!category?'YOUR SOFTWARE, TOGETHER':'APPHUB / '+esc(category||title.toUpperCase())}</div><h1>${isSearch?'Search your PC':esc(title)}</h1><p>${isSearch?`Results for “${esc(query)}” · Applications and Windows settings`:esc(subtitle)}</p></div><div class="header-actions">${view==='all'&&!isSearch&&!category?'<button class="button subtle" id="header-export">↗ Export library</button>':''}</div>`;
- const stats=$('#stats');stats.classList.toggle('hidden',view!=='all'||isSearch||!!category);if(view==='all'&&!isSearch&&!category){const apps=state.items.filter(a=>a.kind==='app');stats.innerHTML=`<div class="stat"><span class="stat-label">In your library</span><strong>${apps.length}</strong><small>applications</small></div><div class="stat"><span class="stat-label">Ready to open</span><strong>${apps.filter(a=>a.launch&&!a.unavailable).length}</strong><small>one click away</small></div><div class="stat"><span class="stat-label">Updates available</span><strong class="lime">${apps.filter(a=>a.available).length}</strong><small>${state.packageChecked?'checked with WinGet':'check pending'}</small></div><div class="stat"><span class="stat-label">Search intelligence</span><strong class="lime" style="font-size:21px;margin-top:12px">${state.prefs.aiEnabled===false?'Keyword':'100% local'}</strong><small>${state.prefs.aiEnabled===false?'AI disabled':esc(modelName('embedding')+' · '+modelName('reasoning')+' · CPU')}</small></div>`;}
- if(isSearch||['all','favorites','recent','settings'].includes(view))renderLibrary();else if(view==='updates')renderUpdates();else if(view==='reproduce')renderReproduce();else if(view==='activity')renderActivity();else if(view==='preferences')renderPreferences();else if(view==='discover')renderDiscover();renderDetails();$('#header-export')?.addEventListener('click',exportLibrary);}
-function visibleItems(){let items=results||state.items;if(!query.trim()){if(category)items=items.filter(a=>a.category===category);else if(view==='all')items=items.filter(a=>a.kind==='app');else if(view==='settings')items=items.filter(a=>a.kind==='setting');else if(view==='favorites')items=items.filter(a=>a.favorite);else if(view==='recent')items=items.filter(a=>a.lastLaunch);}if(!showHidden)items=items.filter(a=>!a.hidden);if(!query.trim())items=[...items].sort(sort==='recent'||view==='recent'?(a,b)=>(b.lastLaunch||'').localeCompare(a.lastLaunch||''):sort==='source'?(a,b)=>(a.source||'').localeCompare(b.source||'')||a.name.localeCompare(b.name):(a,b)=>a.name.localeCompare(b.name));return items;}
-function answerEntries(){return searchRecommendations.map(id=>state.items.find(a=>a.id===id)).filter(a=>a&&!a.hidden&&(results||[]).some(r=>r.id===a.id));}
-function renderAnswer(){
- if(!query||searching||!searchAnswer||state.prefs.aiEnabled===false)return '';
- const entries=answerEntries();
- return `<section class="local-answer" aria-label="On-device answer"><div class="eyebrow">On-device answer</div><p>${esc(searchAnswer)}</p>${entries.map(a=>`<div class="answer-actions">${a.launch?`<button class="button primary" data-answer-open="${esc(a.id)}" ${a.unavailable?'disabled title="Reconnect the app’s folder, then sync your library"':''} ${answerOpening.has(a.id)?'aria-disabled="true" aria-busy="true"':''}>${answerOpening.has(a.id)?'Opening…':'Open '+esc(a.name)+' ↗'}</button>`:''}<button class="button subtle" data-answer-inspect="${esc(a.id)}">${a.launch?'View details':'Inspect '+esc(a.name)}</button></div>${a.unavailable?'<small class="answer-unavailable">Folder unavailable · reconnect and sync to open.</small>':''}`).join('')}<small>${searchRecommendations.length&&!entries.length?'This recommendation is no longer available in your library. Search again.':'Based on your library and Windows settings.'}</small></section>`;
+function renderNav() {
+  const isSearch = !!query.trim();
+  const updates = state.items.filter(a => a.available).length;
+  const counts = {all: state.items.filter(a => a.kind === 'app' && !a.hidden).length, updates};
+  $('#navigation').innerHTML = nav.map(([group, entries]) => `<div class="nav-group"><span class="nav-label">${group}</span>${entries.map(([id, symbol, label]) =>
+    `<button class="nav-item${view === id && !isSearch ? ' active' : ''}" data-view="${id}">${svg(symbol)}<span class="nav-text">${label}</span>${counts[id] ? `<span class="count${id === 'updates' ? ' attention' : ''}">${counts[id]}</span>` : ''}</button>`).join('')}</div>`).join('');
+  $('#preferences').classList.toggle('active', view === 'preferences' && !isSearch);
 }
-async function openAnswer(id){
- const entry=answerEntries().find(a=>a.id===id);if(!entry?.launch||entry.unavailable||answerOpening.has(id))return;
- const seq=generation;answerOpening.add(id);renderLibrary();
- try{await launch(id);}finally{answerOpening.delete(id);if(seq===generation&&query&&searchAnswer)renderLibrary();}
-}
-function inspectAnswer(id){const entry=answerEntries().find(a=>a.id===id);if(!entry)return;selected=id;renderDetails();focusDetails();$('#app-list')?.querySelectorAll('.app-card').forEach(c=>c.classList.toggle('selected',c.dataset.id===id));}
 
-function renderLibraryContent(){const items=visibleItems();$('#body').innerHTML=`${!query?[...new Set(state.warnings||[])].map(w=>`<div class="notice warn">${esc(w)}</div>`).join(''):''}${searching?'<div class="loading-line"></div>':''}${searchWarning?`<div class="notice warn">${esc(searchWarning)}. Name and keyword results are available.</div>`:''}${query&&searching?'<div class="notice">Finding matches and interpreting your request on this PC…</div>':''}${reasoningWarning?`<div class="notice warn">${esc(reasoningWarning)}</div>`:''}${renderAnswer()}<div class="section-controls"><h2>${query?'Search results':view==='settings'?'Settings directory':view==='favorites'?'Pinned to your world':view==='recent'?'Your recent activity':'All applications'}</h2><span class="meta">${items.length} items</span><span class="spacer"></span>${!query?`<label class="filter-label"><input id="show-hidden" type="checkbox" ${showHidden?'checked':''}>Show hidden</label>`:''}${!query?`<select id="sort" aria-label="Sort applications"><option value="name" ${sort==='name'?'selected':''}>Name A–Z</option><option value="source" ${sort==='source'?'selected':''}>Source</option><option value="recent" ${sort==='recent'?'selected':''}>Recently opened</option></select>`:''}<div class="view-toggle"><button id="grid-view" class="${mode==='grid'?'active':''}" aria-label="Grid view">▦</button><button id="list-view" class="${mode==='list'?'active':''}" aria-label="List view">☰</button></div></div><div class="${mode==='grid'?'grid':'list'}" id="app-list">${items.map(card).join('')}</div>${!items.length?`<div class="empty"><h3>${state.scanning?'Gathering your software…':query?'Nothing found yet':view==='favorites'?'Keep your favorites close':view==='recent'?'Your next launch starts here':'Your library is ready to grow'}</h3><p>${query?'Try a shorter name, a task like “edit pictures,” or a Windows setting like “Bluetooth.”':view==='favorites'?'Select the star on any app or setting to pin it here.':view==='recent'?'Open an application from AppHub and it will appear here.':'Sync your library, add a portable app, or choose a folder to scan.'}</p></div>`:''}`;
- $('.local-answer')?.addEventListener('click',e=>{const open=e.target.closest('[data-answer-open]'),inspect=e.target.closest('[data-answer-inspect]');if(open)void openAnswer(open.dataset.answerOpen);else if(inspect)inspectAnswer(inspect.dataset.answerInspect);});
- $('#grid-view').onclick=()=>{mode='grid';renderLibrary();};$('#list-view').onclick=()=>{mode='list';renderLibrary();};$('#sort')?.addEventListener('change',e=>{sort=e.target.value;renderLibrary();});$('#show-hidden')?.addEventListener('change',e=>{showHidden=e.target.checked;renderLibrary();});$('#app-list').onclick=e=>{const star=e.target.closest('[data-star]');if(star){toggleStar(star.dataset.star);return;}const card=e.target.closest('[data-id]');if(card){selected=card.dataset.id;renderDetails();$('#app-list').querySelectorAll('.app-card').forEach(c=>c.classList.toggle('selected',c.dataset.id===selected));}};$('#app-list').ondblclick=e=>{const card=e.target.closest('[data-id]');if(card&&!e.target.closest('[data-star]'))launch(card.dataset.id);};$('#app-list').onkeydown=e=>{const card=e.target.closest('[data-id]');if(!card||e.target.closest('[data-star]'))return;if(e.key==='Enter'||e.key===' '){e.preventDefault();selected=card.dataset.id;renderDetails();focusDetails();$('#app-list').querySelectorAll('.app-card').forEach(c=>c.classList.toggle('selected',c.dataset.id===selected));}else if(['ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(e.key)){const cards=[...$('#app-list').querySelectorAll('.app-card')],index=cards.indexOf(card),columns=mode==='list'?1:Math.max(1,Math.round($('#app-list').clientWidth/card.getBoundingClientRect().width)),step=e.key==='ArrowDown'?columns:e.key==='ArrowUp'?-columns:e.key==='ArrowLeft'?-1:1;const next=cards[index+step];if(next){e.preventDefault();next.focus();}}else if(e.key==='Home'||e.key==='End'){e.preventDefault();const cards=$('#app-list').querySelectorAll('.app-card');cards[e.key==='Home'?0:cards.length-1]?.focus();}};}
-function card(a){return `<div class="app-card ${mode==='list'?'row':''} ${selected===a.id?'selected':''}" data-id="${esc(a.id)}" tabindex="0" role="button" aria-label="Inspect ${esc(a.name)}"><div class="card-top">${icon(a)}<button class="star ${a.favorite?'is-favorite':''}" data-star="${esc(a.id)}" aria-label="${a.favorite?'Unfavorite':'Favorite'} ${esc(a.name)}">${a.favorite?'★':'☆'}</button></div><div class="card-label"><h3 title="${esc(a.name)}">${esc(a.name)}</h3><div class="publisher">${esc(a.publisher||a.category)}</div>${query&&a.match?`<div class="match-note">${esc(a.match)}</div>`:''}</div>${a.unavailable?'<div class="match-note">Folder unavailable · reconnect and sync</div>':''}<div class="card-bottom"><span class="source-tag">${esc(a.kind==='setting'?a.group:a.packageId?'WinGet':a.source)}</span>${a.available?'<span class="update-dot" title="Update available"></span>':''}<span class="launch-mark" title="${a.unavailable?'Folder unavailable':a.launch?'Launch available':'Inspect application'}">${a.launch&&!a.unavailable?'↗':'⋯'}</span></div>${mode==='list'?`<button class="star ${a.favorite?'is-favorite':''}" data-star="${esc(a.id)}" aria-label="Toggle favorite">${a.favorite?'★':'☆'}</button>`:''}</div>`;}
-function renderDetails(){const a=state.items.find(a=>a.id===selected);const el=$('#details'),oldTags=$('#tags'),draft=oldTags&&oldTags===document.activeElement&&oldTags.dataset.itemId===a?.id?{value:oldTags.value,start:oldTags.selectionStart,end:oldTags.selectionEnd}:null;el.classList.toggle('hidden',!a);if(!a)return;el.innerHTML=`<button class="close-detail" id="close-detail" aria-label="Close details">×</button><div class="eyebrow">${a.kind==='setting'?'WINDOWS SETTINGS':'IN YOUR LIBRARY'}</div>${icon(a)}<h2>${esc(a.name)}</h2><div class="subtext">${esc(a.description||a.category)}</div><div class="detail-actions"><button id="launch" class="button primary" ${!a.launch||a.unavailable?'disabled':''}>${a.kind==='setting'?'Open setting':'Launch app'} ↗</button><button id="detail-star" class="button subtle" aria-label="Toggle favorite">${a.favorite?'★':'☆'}</button></div>${a.unavailable?`<div class="notice warn">${esc(a.unavailableReason||'This app’s folder is unavailable. Reconnect it, then sync your library.')}<br>Use Sync library to retry.</div>`:''}${!a.launch?'<div class="notice warn">No launch entry found. This may be a runtime, plugin, or background component.</div>':''}${a.available?`<div class="notice">Update available: ${esc(a.available)}<br><button id="detail-update">Review update →</button></div>`:''}<div class="detail-section"><h3>Application details</h3>${[['Version',a.version||'Not reported'],['Publisher',a.publisher||'Not reported'],['Source',a.packageId?'WinGet · '+a.packageSource:a.source],['Category',a.category],['Package ID',a.packageId],['Installed size',a.sizeKB?Math.round(a.sizeKB/1024)+' MB (reported)':''],['Install folder',a.location],['Launch target',a.launch?.target],['Last opened',a.lastLaunch?new Date(a.lastLaunch).toLocaleString():'Not opened from AppHub yet']].filter(([,v])=>v).map(([k,v])=>`<div class="detail-row"><label>${k}</label><span>${esc(v)}</span></div>`).join('')}${a.location||a.executable?'<button class="text-button" id="reveal">Show in File Explorer ↗</button>':''}${a.packageId?'<br><button class="text-button" id="package-info">Inspect package metadata ↗</button>':''}</div><div class="detail-section"><h3>Your tags</h3><input class="tag-input" id="tags" data-item-id="${esc(a.id)}" placeholder="e.g. work, daily, guitar" value="${esc((a.tags||[]).join(', '))}" aria-label="Tags, separated by commas"><small style="display:block;margin-top:7px">Separate tags with commas. Saved when you leave.</small><button class="text-button" id="hide-app">${a.hidden?'Show in library':'Hide from library'}</button>${a.source==='Portable'&&state.prefs.custom?.some(p=>p.id===a.id)?'<br><button class="text-button" id="remove-custom">Remove from library</button><small style="display:block">The application file stays on your PC.</small>':''}</div>`;
- $('#close-detail').onclick=()=>{const id=selected;selected=null;renderDetails();$('#app-list')?.querySelectorAll('.app-card').forEach(c=>{c.classList.remove('selected');if(c.dataset.id===id)c.focus();});};$('#remove-custom')?.addEventListener('click',()=>attempt(()=>api.removeApp(a.id)));$('#launch').onclick=()=>launch(a.id);$('#detail-star').onclick=()=>toggleStar(a.id);$('#reveal')?.addEventListener('click',()=>attempt(()=>api.reveal(a.id)));$('#hide-app').onclick=()=>attempt(()=>api.modify(a.id,'hidden',!a.hidden));$('#tags').onchange=e=>attempt(()=>api.modify(a.id,'tags',e.target.value.split(',').map(x=>x.trim()).filter(Boolean)));$('#detail-update')?.addEventListener('click',()=>reviewUpdates([a]));$('#package-info')?.addEventListener('click',()=>packageInfo(a));if(draft){const tags=$('#tags');tags.value=draft.value;tags.focus();tags.setSelectionRange(draft.start,draft.end);}}
-async function launch(id){if(state.items.find(a=>a.id===id)?.unavailable){toast('Reconnect the app’s folder, then sync your library.',true);return;}await attempt(async()=>{await api.launch(id);toast('Opened '+state.items.find(a=>a.id===id)?.name);});}
-function toggleStar(id){const a=state.items.find(a=>a.id===id);if(a)attempt(()=>api.modify(id,'favorite',!a.favorite));}
-function closeModal(){modalGeneration++;$('#modal').close();}
-function modal(html){const token=++modalGeneration;$('#modal-content').innerHTML=html;const heading=$('#modal-content h2');if(heading){heading.id='modal-title';$('#modal').setAttribute('aria-labelledby','modal-title');$('#modal').removeAttribute('aria-label');}else{$('#modal').removeAttribute('aria-labelledby');$('#modal').setAttribute('aria-label','AppHub');}if(!$('#modal').open)$('#modal').showModal();$('#cancel-modal')?.addEventListener('click',closeModal);return token;}
-function modalIsCurrent(token){return token===modalGeneration&&$('#modal').open;}
-function queueFromModal(button,action,message){const token=modalGeneration;button.disabled=true;attempt(async()=>{await action();if(modalIsCurrent(token)){closeModal();navigate('activity');}toast(message);}).finally(()=>{if(button.isConnected)button.disabled=false;});}
-async function exportLibrary(){await attempt(async()=>{const f=await api.exportLibrary();if(f)toast('Library saved. '+state.items.filter(a=>a.packageId).length+' reproducible packages.');});}
-function renderUpdates(){const apps=state.items.filter(a=>a.available);$('#body').innerHTML=`<div class="notice">Updates use WinGet’s verified package IDs and installer checks. Some applications manage their own updates. Installers may ask for administrator access.</div><div class="section-controls"><h2>${apps.length} updates available</h2><span class="meta">${state.packageChecked?'Checked '+new Date(state.packageChecked).toLocaleString():'Not checked yet'}</span><span class="spacer"></span><button id="check-updates" class="button subtle">↻ Check for updates</button>${apps.length?'<button id="update-all" class="button primary">Review all updates →</button>':''}</div><div id="update-list">${apps.map(a=>`<div class="update-row">${icon(a)}<div><strong>${esc(a.name)}</strong><small>${esc(a.version)} → <span style="color:var(--lime)">${esc(a.available)}</span> · ${esc(a.packageId)}</small></div><button class="button subtle" data-update="${esc(a.id)}">Review update</button></div>`).join('')}</div>${!apps.length?'<div class="empty"><h3>A good time for a fresh check</h3><p>Check WinGet for available updates. Apps without a package match can be updated through their own updater.</p></div>':''}`;$('#check-updates').onclick=checkUpdates;$('#update-all')?.addEventListener('click',()=>reviewUpdates(apps));$('#update-list').onclick=e=>{const b=e.target.closest('[data-update]');if(b)reviewUpdates(apps.filter(a=>a.id===b.dataset.update));};}
-async function checkUpdates(){const button=$('#check-updates');if(button){button.disabled=true;button.textContent='Checking…';}await attempt(async()=>{const next=await api.packages();state={...state,...next};render();toast('Package information refreshed');});if(button?.isConnected){button.disabled=false;button.textContent='↻ Check for updates';}}
-function reviewUpdates(apps){modal(`<h2>Update ${apps.length===1?'this application':'your applications'}?</h2><p>WinGet will run the installers for the selected packages. Save work in these applications before continuing.</p><div class="plan-list">${apps.map(a=>`<label class="plan-row"><input type="checkbox" checked data-update-select="${esc(a.id)}"><div><strong>${esc(a.name)}</strong><small>${esc(a.version)} → ${esc(a.available)}</small></div></label>`).join('')}</div><div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="confirm-updates" class="button primary">Start selected updates</button></div>`);const button=$('#confirm-updates');const selection=()=>[...$('#modal-content').querySelectorAll('[data-update-select]:checked')].map(x=>x.dataset.updateSelect);$('#modal-content').querySelectorAll('[data-update-select]').forEach(e=>e.onchange=()=>{button.disabled=!selection().length;});button.onclick=()=>{const ids=selection();if(ids.length)queueFromModal(button,()=>api.upgrade(ids),'Updates added to the queue');};}
-function renderReproduce(){$('#body').innerHTML=`<div class="panel"><div class="eyebrow">01 / SAVE YOUR SETUP</div><h2>Your library, in a file</h2><p>Export installed package IDs, versions, app locations, favorites, and tags. Keep the manifest with your backups or use it to set up another Windows PC.</p><button id="export" class="button primary">↗ Export library</button></div><div class="panel"><div class="eyebrow">02 / MAKE IT FEEL LIKE HOME</div><h2>Recreate a library</h2><p>Open an AppHub manifest to compare it with this PC. Review missing packages, choose which to install, and decide whether to use the saved versions or the latest releases.</p><button id="import" class="button subtle">⇄ Open library manifest</button>${libraryPlan?'<button id="review-plan" class="button subtle">Review imported library</button>':''}</div><div class="notice warn">A library manifest is a software inventory, not a full PC backup. App data, licenses, game files, and Windows settings need their own backup. Apps outside WinGet are recorded as a reference checklist.</div>`;$('#export').onclick=exportLibrary;$('#review-plan')?.addEventListener('click',()=>showPlan(libraryPlan));$('#import').onclick=()=>attempt(async()=>{const plan=await api.importLibrary();if(plan)showPlan(plan);});}
-function showPlan(plan){
- libraryPlan=plan;
- const installed=new Set(state.items.filter(a=>a.packageId).map(a=>(a.packageSource||'winget')+':'+a.packageId.toLowerCase()));
- const packages=plan.packages.map(p=>({...p,installed:installed.has(p.key||((p.source||'winget')+':'+p.id.toLowerCase()))}));
- const references=Array.isArray(plan.references)?plan.references:[];
- modal(`<h2>Recreate your library</h2><p>${packages.filter(p=>!p.installed).length} packages missing · ${packages.filter(p=>p.installed).length} already installed · ${plan.referenceCount||references.length} other apps recorded for reference.</p>${packages.length?`<div class="plan-list">${packages.map(p=>`<label class="plan-row"><input type="checkbox" data-plan-id="${esc(p.key||p.id)}" ${p.installed?'disabled':'checked'}><div class="plan-entry"><strong>${esc(p.name)}</strong><small>${esc(p.id)} · Saved version ${esc(p.version||'unspecified')}</small></div><span class="pill ${p.installed?'neutral':''}">${p.installed?'Installed':'Missing'}</span></label>`).join('')}</div><label class="check"><input type="checkbox" id="exact-versions">Use saved versions when specified</label><p>By default, the latest available release is installed. An unavailable saved version will fail visibly in Activity. Existing apps are left as they are.</p>`:'<p>No WinGet packages were recorded in this manifest.</p>'}${references.length?`<details class="reference-checklist"><summary>Manual application checklist · ${references.length}</summary><p>Use each app’s own installer, store, or backup. Saved paths are a reference from the original PC.</p><div class="plan-list">${references.map(a=>`<label class="plan-row"><input type="checkbox" aria-label="Mark ${esc(a.name)} reviewed"><div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc([a.source,a.version].filter(Boolean).join(' · '))}</small>${a.location?`<small>${esc(a.location)}</small>`:''}</div></label>`).join('')}</div></details>`:''}<div class="restore-preferences"><h3>Favorites & tags</h3><p>Apply saved favorites and tags to matching apps already on this PC. You can return here after installation to restore newly installed apps.</p><button id="restore-preferences" class="button subtle">Restore favorites & tags</button><span id="restore-result" role="status"></span></div><div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button><button id="confirm-plan" class="button primary" ${packages.every(p=>p.installed)?'disabled':''}>Install selected packages</button></div>`);
- const button=$('#confirm-plan');
- const selection=()=>[...$('#modal-content').querySelectorAll('[data-plan-id]:checked')].map(e=>e.dataset.planId);
- $('#modal-content').querySelectorAll('[data-plan-id]').forEach(e=>e.onchange=()=>{button.disabled=!selection().length;});
- button.onclick=()=>{const ids=selection(),exact=!!$('#exact-versions')?.checked;if(ids.length)queueFromModal(button,()=>api.runPlan(ids,exact),'Library recreation queued');};
- $('#restore-preferences').onclick=e=>{const restore=e.currentTarget,token=modalGeneration;restore.disabled=true;attempt(async()=>{const count=await api.restorePreferences();if(modalIsCurrent(token))$('#restore-result').textContent=`Restored for ${count} matching app${count===1?'':'s'}.`;toast(`Favorites and tags restored for ${count} matching app${count===1?'':'s'}`);}).finally(()=>{if(restore.isConnected)restore.disabled=false;});};
+function navigate(v, c = '') {
+  if (searching) api.cancelSearch?.().catch(() => {});
+  clearTimeout(debounce);
+  view = v; category = c; query = ''; $('#search').value = '';
+  results = null; selected = null; generation++;
+  searching = false; searchWarning = ''; searchAnswer = ''; searchRecommendations = []; reasoningWarning = '';
+  render();
+  $('#content').scrollTop = 0;
 }
-function renderActivityContent(){const previous=new Map([...document.querySelectorAll('.activity-card[data-job]')].map(el=>[el.dataset.job,{open:el.querySelector('details')?.open,scroll:el.querySelector('pre')?.scrollTop||0}]));$('#body').innerHTML=state.jobs.length?state.jobs.map(j=>`<article class="activity-card" data-job="${esc(j.id)}"><div class="activity-header"><span class="spark">${j.status==='completed'?'✓':j.status==='failed'?'!':'↓'}</span><div style="flex:1"><strong>${j.action==='upgrade'?'Update':'Install'} · ${j.packages.length} package${j.packages.length===1?'':'s'}</strong><small>${new Date(j.created).toLocaleString()} · ${esc(j.packages.map(p=>p.id).join(', '))}</small></div><span class="pill ${['failed','interrupted'].includes(j.status)?'neutral':''}">${esc(j.status)}</span></div>${j.status==='queued'?`<button class="text-button" data-cancel-job="${esc(j.id)}">Cancel queued operation</button>`:''}<details><summary>View installer output and results</summary><pre>${esc(j.log||'Waiting in queue…')}</pre>${(j.results||[]).map(r=>`<small>${esc(r.id)} · ${r.uncertain?'Outcome uncertain':r.notRun?'Not run':r.success?'Succeeded':'Failed'}${r.code!==undefined?' · Exit code '+r.code:''}</small><br>`).join('')}</details></article>`).join(''):'<div class="empty"><h3>All quiet here</h3><p>Updates and installs will appear here with their progress, results, and installer output.</p><button id="activity-updates" class="button subtle">Explore updates →</button></div>';document.querySelectorAll('.activity-card[data-job]').forEach(el=>{const old=previous.get(el.dataset.job);if(old){el.querySelector('details').open=old.open;el.querySelector('pre').scrollTop=old.scroll;}});document.querySelectorAll('[data-cancel-job]').forEach(b=>b.onclick=()=>attempt(()=>api.cancelJob(b.dataset.cancelJob)));$('#activity-updates')?.addEventListener('click',()=>navigate('updates'));}
-function renderPreferences(){const ai=state.ai||{},reasoner=state.reasoner||{};$('#body').innerHTML=`${[...new Set(state.warnings||[])].map(w=>`<div class="notice warn">${esc(w)}</div>`).join('')}<div class="panel"><div class="eyebrow">SEARCH INTELLIGENCE</div><h2>Meaning, without the cloud</h2><p id="model-description">${esc(modelName('embedding'))} retrieves apps and Windows settings by meaning. ${esc(modelName('reasoning'))} interprets longer task requests and explains relevant matches from your library. Exact names, partial names, and typos also work. Queries and your software inventory stay on this PC.</p><label class="setting-row"><div><strong>Use local AI search</strong><small><span id="model-summary">${esc(modelName('embedding'))} · ${esc(modelName('reasoning'))} · CPU</span><br>Both models unload 60 seconds after use. Results open only when you choose them.</small></div><input id="ai-toggle" type="checkbox" ${state.prefs.aiEnabled!==false?'checked':''}></label><div class="setting-row"><div><strong>${esc(modelName('embedding'))} retrieval</strong><small id="embedding-runtime">${esc(ai.message||'Sleeping')}${ai.pid?' · Process '+ai.pid:''}</small></div><span id="embedding-runtime-status" class="pill">${esc(ai.status||'sleeping')}</span></div><div class="setting-row"><div><strong>${esc(modelName('reasoning'))} interpretation</strong><small id="reasoning-runtime">${esc(reasoner.message||'Sleeping')}${reasoner.pid?' · Process '+reasoner.pid:''}</small></div><span id="reasoning-runtime-status" class="pill">${esc(reasoner.status||'sleeping')}</span></div></div><div id="local-models"></div><div class="panel"><div class="eyebrow">LIBRARY DISCOVERY</div><h2>Bring every tool along</h2><p>AppHub combines the Windows registry, Start menu, application shortcuts, Store launch entries, WinGet matches, and installed Steam games. Add apps that live outside those places.</p><button id="prefs-add" class="button subtle">＋ Add executable</button><button id="prefs-folder" class="button subtle">＋ Scan portable folder</button>${state.prefs.folders?.length?`<div class="detail-row"><label>Folders scanned on sync (top level)</label><span>${state.prefs.folders.map(folder=>`<div class="watched-folder"><span>${esc(folder)}${state.sourceHealth?.find(h=>h.type==='portable-folder'&&h.path===folder)?.status==='unavailable'?'<small> · Unavailable — reconnect and sync to retry</small>':''}</span><button class="text-button" data-remove-folder="${esc(folder)}">Stop scanning</button></div>`).join('')}</span></div>`:''}</div><div class="panel"><h2>Yours to keep</h2><p>Your inventory, preferences, search vectors, and package history are stored locally. No account or telemetry. AppHub ${esc(state.appVersion||'1.0.0')}.</p><button id="open-data" class="button subtle">Open local data folder ↗</button><div class="detail-row"><span>${esc(state.dataDirectory||'')}</span></div></div>`;renderModels();document.querySelectorAll('[data-remove-folder]').forEach(b=>b.onclick=()=>attempt(()=>api.removeFolder(b.dataset.removeFolder)));$('#ai-toggle').onchange=e=>attempt(()=>api.setAI(e.target.checked));$('#prefs-add').onclick=()=>attempt(()=>api.addApp());$('#prefs-folder').onclick=()=>attempt(()=>api.addFolder());$('#open-data').onclick=()=>attempt(()=>api.openData());}
-function renderDiscover(){
- $('#body').innerHTML=`<div class="notice">Discover packages from the WinGet community repository. Inspect package details before installing. Publisher terms and installer requirements apply.</div><form id="catalog-form" class="large-search"><input id="catalog-query" value="${esc(catalogQuery)}" placeholder="Find packages, like VLC, Blender, or PowerToys…" aria-label="Search WinGet catalog" minlength="2" maxlength="100" required><button id="catalog-submit" class="button primary" ${catalogLoading?'disabled':''}>${catalogLoading?'Searching…':'Search catalog →'}</button></form><div id="catalog-results" aria-live="polite">${catalogPackages===null?'<div class="empty"><h3>A new tool is a search away</h3><p>Explore real packages available through Windows Package Manager.</p></div>':catalogPackages.map(p=>`<div class="update-row"><div class="plan-entry"><strong>${esc(p.name)}</strong><small>${esc(p.id)} · ${esc(p.version)}</small></div><button class="button subtle" data-catalog="${esc(p.id)}">Inspect & install</button></div>`).join('')||'<div class="empty">No packages found.</div>'}</div>`;
- $('#catalog-query').oninput=e=>{catalogQuery=e.target.value;};
- $('#catalog-results').onclick=e=>{const button=e.target.closest('[data-catalog]');if(button)inspectCatalog(catalogPackages?.find(p=>p.id===button.dataset.catalog));};
- $('#catalog-form').onsubmit=async e=>{e.preventDefault();const q=$('#catalog-query').value.trim();if(q.length<2){toast('Enter at least two characters',true);return;}catalogQuery=q;const seq=++catalogGeneration;catalogLoading=true;renderDiscover();try{const packages=await api.catalog(q);if(seq===catalogGeneration)catalogPackages=packages;}catch(error){if(seq===catalogGeneration)toast(error.message,true);}finally{if(seq===catalogGeneration){catalogLoading=false;if(view==='discover'&&!query.trim())renderDiscover();}}};
+
+function renderContent() {
+  updateFooter();
+  renderNav();
+  const isSearch = !!query.trim();
+  const title = isSearch ? `Results for “${query}”` : titles[view] || titles.all;
+  $('#page-header').innerHTML = `<h1 title="${esc(title)}">${esc(title)}</h1>${view === 'all' && !isSearch ? `<button id="add-app" class="button subtle">${svg('plus')}Add app</button>` : ''}`;
+  if (isSearch || ['all', 'favorites', 'recent', 'settings'].includes(view)) renderLibrary();
+  else if (view === 'updates') renderUpdates();
+  else if (view === 'reproduce') renderReproduce();
+  else if (view === 'activity') renderActivity();
+  else if (view === 'preferences') renderPreferences();
+  else if (view === 'discover') renderDiscover();
+  renderDetails();
+  $('#add-app')?.addEventListener('click', () => attempt(() => api.addApp()));
 }
-async function packageInfo(a){const token=modal(`<h2>Package metadata</h2><p>Reading ${esc(a.packageId)} from WinGet…</p><div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button></div>`);try{const text=await api.packageInfo({id:a.packageId,source:a.packageSource});if(modalIsCurrent(token))modal(`<h2>${esc(a.name)}</h2><pre>${esc(text)}</pre><div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button></div>`);}catch(e){if(modalIsCurrent(token)){closeModal();toast(e.message,true);}}}
-async function inspectCatalog(p){if(!p)return;const token=modal(`<h2>${esc(p.name)}</h2><p>Loading publisher and installer details…</p><div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button></div>`);try{const info=await api.packageInfo(p);if(!modalIsCurrent(token))return;modal(`<h2>${esc(p.name)}</h2><p>Review the publisher, license, and installer below. WinGet will install the latest release.</p><pre>${esc(info)}</pre><div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="catalog-install" class="button primary">Install application</button></div>`);$('#catalog-install').onclick=e=>queueFromModal(e.currentTarget,()=>api.install(p),'Installation queued');}catch(e){if(modalIsCurrent(token)){closeModal();toast(e.message,true);}}}
-$('#modal').addEventListener('cancel',()=>{modalGeneration++;});
+
+function visibleItems() {
+  let items = results || state.items;
+  if (!query.trim()) {
+    if (category) items = items.filter(a => a.category === category);
+    else if (view === 'all') items = items.filter(a => a.kind === 'app');
+    else if (view === 'settings') items = items.filter(a => a.kind === 'setting');
+    else if (view === 'favorites') items = items.filter(a => a.favorite);
+    else if (view === 'recent') items = items.filter(a => a.lastLaunch);
+  }
+  if (!showHidden) items = items.filter(a => !a.hidden);
+  if (!query.trim()) {
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    items = [...items].sort(sort === 'recent' || view === 'recent' ? (a, b) => (b.lastLaunch || '').localeCompare(a.lastLaunch || '')
+      : sort === 'source' ? (a, b) => (a.source || '').localeCompare(b.source || '') || byName(a, b)
+      : byName);
+  }
+  return items;
+}
+
+function answerEntries() {
+  return searchRecommendations.map(item).filter(a => a && !a.hidden && (results || []).some(r => r.id === a.id));
+}
+function renderAnswer() {
+  if (!query || searching || !searchAnswer || state.prefs.aiEnabled === false) return '';
+  const entries = answerEntries();
+  const actions = entries.map(a => {
+    const busy = answerOpening.has(a.id);
+    const open = a.launch ? `<button class="button primary" data-answer-open="${esc(a.id)}" ${a.unavailable ? 'disabled title="Reconnect the app’s folder, then sync your library"' : ''} ${busy ? 'aria-disabled="true" aria-busy="true"' : ''}>${busy ? 'Opening…' : 'Open ' + esc(a.name)}</button>` : '';
+    return `<div class="answer-actions">${open}<button class="button subtle" data-answer-inspect="${esc(a.id)}">${a.launch ? 'Details' : esc(a.name) + ' details'}</button></div>${a.unavailable ? '<small class="answer-unavailable">Folder unavailable · reconnect and sync to open.</small>' : ''}`;
+  }).join('');
+  const stale = searchRecommendations.length && !entries.length ? '<small>This recommendation is no longer in your library. Search again.</small>' : '';
+  return `<section class="local-answer" aria-label="On-device answer"><div class="answer-label">Local AI answer</div><p>${esc(searchAnswer)}</p>${actions}${stale}</section>`;
+}
+async function openAnswer(id) {
+  const entry = answerEntries().find(a => a.id === id);
+  if (!entry?.launch || entry.unavailable || answerOpening.has(id)) return;
+  const seq = generation;
+  answerOpening.add(id);
+  renderLibrary();
+  try { await launch(id); } finally {
+    answerOpening.delete(id);
+    if (seq === generation && query && searchAnswer) renderLibrary();
+  }
+}
+function inspectAnswer(id) {
+  if (answerEntries().some(a => a.id === id)) openDetails(id);
+}
+
+function selectCard(id) {
+  selected = id;
+  renderDetails();
+  $('#app-list')?.querySelectorAll('.app-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id));
+}
+function openDetails(id) { selectCard(id); focusDetails(); }
+// A card opens its app. Entries that cannot launch show their details instead.
+function activate(id) {
+  const a = item(id);
+  if (!a) return;
+  if (!a.launch || a.unavailable) { openDetails(id); return; }
+  if (recentlyActivated.has(id)) return; // absorbs the second half of a double-click
+  recentlyActivated.add(id);
+  setTimeout(() => recentlyActivated.delete(id), 1200);
+  launch(id);
+}
+
+function libraryToolbar(items) {
+  if (query) return `<div class="section-controls"><span class="meta">${plural(items.length, 'result')}</span><span class="spacer"></span>${items.length ? '<span class="meta"><kbd>Enter</kbd> opens the top result</span>' : ''}</div>`;
+  const apps = state.items.filter(a => a.kind === 'app' && !a.hidden);
+  const chips = view !== 'all' ? '' : `<div class="chips" id="categories"><button class="chip${category ? '' : ' active'}" data-category="">All</button>${categories.map(c => {
+    const n = apps.filter(a => a.category === c).length;
+    return n ? `<button class="chip${category === c ? ' active' : ''}" data-category="${esc(c)}">${esc(c)} <span>${n}</span></button>` : '';
+  }).join('')}</div>`;
+  const noun = view === 'settings' ? 'setting' : 'item';
+  const hiddenToggle = showHidden || state.items.some(a => a.hidden) ? `<label class="filter-label"><input id="show-hidden" type="checkbox" ${showHidden ? 'checked' : ''}>Show hidden</label>` : '';
+  const sorter = view === 'recent' ? '' : `<select id="sort" aria-label="Sort"><option value="name" ${sort === 'name' ? 'selected' : ''}>Name</option><option value="recent" ${sort === 'recent' ? 'selected' : ''}>Recently opened</option><option value="source" ${sort === 'source' ? 'selected' : ''}>Source</option></select>`;
+  return `<div class="section-controls">${chips || `<span class="meta">${plural(items.length, noun)}</span><span class="spacer"></span>`}${hiddenToggle}${sorter}<div class="view-toggle"><button id="grid-view" class="${mode === 'grid' ? 'active' : ''}" aria-label="Grid view" title="Grid">${svg('grid')}</button><button id="list-view" class="${mode === 'list' ? 'active' : ''}" aria-label="List view" title="List">${svg('list')}</button></div></div>`;
+}
+
+function libraryEmpty() {
+  const [heading, text] = state.scanning ? ['Scanning this PC…', 'Apps appear here as they are found.']
+    : query ? ['No matches', 'Try a shorter name, a task such as “edit pictures”, or a Windows setting such as “Bluetooth”.']
+    : view === 'favorites' ? ['No favorites yet', 'Star an app or setting to keep it here.']
+    : view === 'recent' ? ['Nothing opened yet', 'Apps and settings you open from AppHub are listed here.']
+    : ['No apps found', 'Sync the library, or add an app or folder in Settings.'];
+  return `<div class="empty"><h3>${heading}</h3><p>${text}</p></div>`;
+}
+
+function renderLibraryContent() {
+  const items = visibleItems();
+  const layout = query ? 'list' : mode;
+  const warnings = !query ? [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('') : '';
+  $('#body').innerHTML = warnings
+    + (searching ? '<div class="loading-line"></div>' : '')
+    + (searchWarning ? `<div class="notice warn">${esc(searchWarning)}. Name and keyword results are available.</div>` : '')
+    + (reasoningWarning ? `<div class="notice warn">${esc(reasoningWarning)}</div>` : '')
+    + renderAnswer()
+    + libraryToolbar(items)
+    + `<div class="${layout}${query ? ' results' : ''}" id="app-list">${items.map(a => card(a, layout)).join('')}</div>`
+    + (items.length ? '' : libraryEmpty());
+
+  $('.local-answer')?.addEventListener('click', e => {
+    const open = e.target.closest('[data-answer-open]'), inspect = e.target.closest('[data-answer-inspect]');
+    if (open) void openAnswer(open.dataset.answerOpen);
+    else if (inspect) inspectAnswer(inspect.dataset.answerInspect);
+  });
+  $('#categories')?.addEventListener('click', e => { const b = e.target.closest('[data-category]'); if (b) navigate('all', b.dataset.category); });
+  $('#grid-view')?.addEventListener('click', () => { mode = 'grid'; store('mode', mode); renderLibrary(); });
+  $('#list-view')?.addEventListener('click', () => { mode = 'list'; store('mode', mode); renderLibrary(); });
+  $('#sort')?.addEventListener('change', e => { sort = e.target.value; store('sort', sort); renderLibrary(); });
+  $('#show-hidden')?.addEventListener('change', e => { showHidden = e.target.checked; renderLibrary(); });
+
+  const list = $('#app-list');
+  list.onclick = e => {
+    const star = e.target.closest('[data-star]'), info = e.target.closest('[data-info]'), entry = e.target.closest('[data-id]');
+    if (star) toggleStar(star.dataset.star);
+    else if (info) selectCard(info.dataset.info);
+    else if (entry) activate(entry.dataset.id);
+  };
+  list.oncontextmenu = e => {
+    const entry = e.target.closest('[data-id]');
+    if (entry) { e.preventDefault(); selectCard(entry.dataset.id); }
+  };
+  list.onkeydown = e => {
+    const entry = e.target.closest('[data-id]');
+    if (!entry || e.target !== entry) return;
+    if (e.key === 'Enter') { e.preventDefault(); activate(entry.dataset.id); }
+    else if (e.key === ' ') { e.preventDefault(); openDetails(entry.dataset.id); }
+    else if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      const cards = [...list.querySelectorAll('.app-card')], index = cards.indexOf(entry);
+      const columns = Math.max(1, cards.filter(c => c.offsetTop === cards[0].offsetTop).length);
+      const step = e.key === 'ArrowDown' ? columns : e.key === 'ArrowUp' ? -columns : e.key === 'ArrowLeft' ? -1 : 1;
+      const next = cards[index + step];
+      if (next) { e.preventDefault(); next.focus(); }
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      const cards = list.querySelectorAll('.app-card');
+      cards[e.key === 'Home' ? 0 : cards.length - 1]?.focus();
+    }
+  };
+}
+
+function card(a, layout) {
+  const id = esc(a.id), name = esc(a.name), canOpen = a.launch && !a.unavailable;
+  const classes = ['app-card', layout === 'list' ? 'row' : 'tile', selected === a.id && 'selected', a.unavailable && 'unavailable', a.hidden && 'is-hidden'].filter(Boolean).join(' ');
+  const attrs = `class="${classes}" data-id="${id}" tabindex="0" role="button" aria-label="${canOpen ? 'Open' : 'Details for'} ${name}"`;
+  const star = `<button class="icon-button star${a.favorite ? ' is-favorite' : ''}" data-star="${id}" aria-label="${a.favorite ? 'Unfavorite' : 'Favorite'} ${name}" title="${a.favorite ? 'Remove from favorites' : 'Add to favorites'}">${svg('star')}</button>`;
+  const info = `<button class="icon-button info" data-info="${id}" aria-label="Details for ${name}" title="Details">${svg('dots')}</button>`;
+  if (layout !== 'list') {
+    return `<div ${attrs} title="${name}${a.unavailable ? ' · folder unavailable' : ''}">${icon(a)}<h3>${name}</h3>${a.available ? '<i class="update-dot" title="Update available"></i>' : ''}${star}${info}</div>`;
+  }
+  const note = a.unavailable ? 'Folder unavailable · reconnect and sync' : query && a.match ? a.match : '';
+  const source = a.kind === 'setting' ? 'Windows' : a.packageId ? 'WinGet' : a.source;
+  return `<div ${attrs}>${icon(a)}<div class="card-label"><h3 title="${name}">${name}</h3>${note ? `<div class="match-note">${esc(note)}</div>` : ''}</div>`
+    + `<span class="cell publisher">${esc(a.kind === 'setting' ? a.group || 'Windows settings' : a.publisher || a.category || '')}</span>`
+    + `<span class="cell version">${esc(a.version || '')}</span><span class="cell source">${esc(source || '')}</span>`
+    + `<span class="cell flag">${a.available ? '<span class="pill info" title="Update available">Update</span>' : ''}</span>${star}${info}</div>`;
+}
+
+function renderDetails() {
+  const a = item(selected);
+  const el = $('#details'), oldTags = $('#tags');
+  const draft = oldTags && oldTags === document.activeElement && oldTags.dataset.itemId === a?.id ? {value: oldTags.value, start: oldTags.selectionStart, end: oldTags.selectionEnd} : null;
+  el.classList.toggle('hidden', !a);
+  if (!a) return;
+  const isCustom = a.source === 'Portable' && state.prefs.custom?.some(p => p.id === a.id);
+  const rows = [
+    ['Version', a.version], ['Publisher', a.publisher], ['Category', a.category],
+    ['Source', a.packageId ? 'WinGet' + (a.packageSource && a.packageSource !== 'winget' ? ' · ' + a.packageSource : '') : a.source],
+    ['Package ID', a.packageId], ['Size', a.sizeKB ? Math.round(a.sizeKB / 1024) + ' MB' : ''],
+    ['Folder', a.location], ['Target', a.launch?.target],
+    ['Last opened', a.lastLaunch ? new Date(a.lastLaunch).toLocaleString() : '']
+  ].filter(([, v]) => v);
+  el.innerHTML = `<button class="icon-button close-detail" id="close-detail" aria-label="Close details" title="Close">${svg('close')}</button>`
+    + `<div class="details-head">${icon(a)}<div><h2>${esc(a.name)}</h2><div class="subtext">${esc(a.description || (a.kind === 'setting' ? 'Windows setting' : a.publisher || a.category || ''))}</div></div></div>`
+    + `<div class="detail-actions"><button id="launch" class="button primary" ${!a.launch || a.unavailable ? 'disabled' : ''}>Open</button>`
+    + `<button id="detail-star" class="button subtle${a.favorite ? ' is-favorite' : ''}" aria-pressed="${a.favorite ? 'true' : 'false'}">${svg('star')}${a.favorite ? 'Favorited' : 'Favorite'}</button></div>`
+    + (a.unavailable ? `<div class="notice warn">${esc(a.unavailableReason || 'This app’s folder is unavailable. Reconnect it, then sync your library.')}<br>Use Sync to retry.</div>` : '')
+    + (!a.launch ? '<div class="notice">Nothing to open. This is probably a runtime, driver, plugin or background component.</div>' : '')
+    + (a.available ? `<div class="notice info">Update available: ${esc(a.available)} <button class="text-button" id="detail-update">Review update</button></div>` : '')
+    + `<dl class="detail-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`
+    + `<div class="detail-links">${a.location || a.executable ? '<button class="text-button" id="reveal">Show in File Explorer</button>' : ''}${a.packageId ? '<button class="text-button" id="package-info">Package info</button>' : ''}</div>`
+    + `<div class="detail-section"><label for="tags">Tags</label><input class="text-input" id="tags" data-item-id="${esc(a.id)}" placeholder="work, daily, audio" value="${esc((a.tags || []).join(', '))}"><small>Comma-separated. Tags are searchable.</small></div>`
+    + `<div class="detail-section"><button class="text-button" id="hide-app">${a.hidden ? 'Show in library' : 'Hide from library'}</button>${isCustom ? '<button class="text-button" id="remove-custom">Remove from library</button><small>Removing keeps the file on your PC.</small>' : ''}</div>`;
+
+  $('#close-detail').onclick = () => {
+    const id = selected;
+    selected = null;
+    renderDetails();
+    $('#app-list')?.querySelectorAll('.app-card').forEach(c => { c.classList.remove('selected'); if (c.dataset.id === id) c.focus(); });
+  };
+  $('#launch').onclick = () => launch(a.id);
+  $('#detail-star').onclick = () => toggleStar(a.id);
+  $('#hide-app').onclick = () => attempt(() => api.modify(a.id, 'hidden', !a.hidden));
+  $('#tags').onchange = e => attempt(() => api.modify(a.id, 'tags', e.target.value.split(',').map(x => x.trim()).filter(Boolean)));
+  $('#remove-custom')?.addEventListener('click', () => attempt(() => api.removeApp(a.id)));
+  $('#reveal')?.addEventListener('click', () => attempt(() => api.reveal(a.id)));
+  $('#detail-update')?.addEventListener('click', () => reviewUpdates([a]));
+  $('#package-info')?.addEventListener('click', () => packageInfo(a));
+  if (draft) { const tags = $('#tags'); tags.value = draft.value; tags.focus(); tags.setSelectionRange(draft.start, draft.end); }
+}
+
+async function launch(id) {
+  if (item(id)?.unavailable) { toast('Reconnect the app’s folder, then sync your library.', true); return; }
+  await attempt(async () => { await api.launch(id); toast('Opened ' + item(id)?.name); });
+}
+function toggleStar(id) {
+  const a = item(id);
+  if (a) attempt(() => api.modify(id, 'favorite', !a.favorite));
+}
+
+function closeModal() { modalGeneration++; $('#modal').close(); }
+function modal(html) {
+  const token = ++modalGeneration;
+  $('#modal-content').innerHTML = html;
+  const heading = $('#modal-content h2');
+  if (heading) { heading.id = 'modal-title'; $('#modal').setAttribute('aria-labelledby', 'modal-title'); $('#modal').removeAttribute('aria-label'); }
+  else { $('#modal').removeAttribute('aria-labelledby'); $('#modal').setAttribute('aria-label', 'AppHub'); }
+  if (!$('#modal').open) $('#modal').showModal();
+  $('#cancel-modal')?.addEventListener('click', closeModal);
+  return token;
+}
+function modalIsCurrent(token) { return token === modalGeneration && $('#modal').open; }
+function queueFromModal(button, action, message) {
+  const token = modalGeneration;
+  button.disabled = true;
+  attempt(async () => {
+    await action();
+    if (modalIsCurrent(token)) { closeModal(); navigate('activity'); }
+    toast(message);
+  }).finally(() => { if (button.isConnected) button.disabled = false; });
+}
+
+async function exportLibrary() {
+  await attempt(async () => {
+    const f = await api.exportLibrary();
+    if (f) toast(`Library exported · ${plural(state.items.filter(a => a.packageId).length, 'WinGet package')}`);
+  });
+}
+
+function renderUpdates() {
+  const apps = state.items.filter(a => a.available);
+  const checked = state.packageChecked ? 'Checked ' + new Date(state.packageChecked).toLocaleString() : 'Not checked yet';
+  $('#body').innerHTML = `<div class="section-controls narrow"><span class="meta">${apps.length ? plural(apps.length, 'update') + ' · ' : ''}${checked}</span><span class="spacer"></span>`
+    + `<button id="check-updates" class="button subtle">${svg('sync')}Check for updates</button>${apps.length ? '<button id="update-all" class="button primary">Update all…</button>' : ''}</div>`
+    + `<div id="update-list" class="rows">${apps.map(a => `<div class="update-row">${icon(a)}<div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc(a.version)} → <span class="new-version">${esc(a.available)}</span> · ${esc(a.packageId)}</small></div><button class="button subtle" data-update="${esc(a.id)}">Update…</button></div>`).join('')}</div>`
+    + (apps.length ? '' : `<div class="empty"><h3>${state.packageChecked ? 'Everything is up to date' : 'Not checked yet'}</h3><p>${state.packageChecked ? 'No WinGet updates were found.' : 'Check WinGet for available updates.'}</p></div>`)
+    + '<p class="footnote">Updates run through WinGet. Apps it doesn’t manage update themselves, and installers may ask for administrator access.</p>';
+  $('#check-updates').onclick = checkUpdates;
+  $('#update-all')?.addEventListener('click', () => reviewUpdates(apps));
+  $('#update-list').onclick = e => { const b = e.target.closest('[data-update]'); if (b) reviewUpdates(apps.filter(a => a.id === b.dataset.update)); };
+}
+async function checkUpdates() {
+  const button = $('#check-updates');
+  if (button) { button.disabled = true; button.textContent = 'Checking…'; }
+  await attempt(async () => { const next = await api.packages(); state = {...state, ...next}; render(); toast('Package information refreshed'); });
+  if (button?.isConnected) { button.disabled = false; button.innerHTML = svg('sync') + 'Check for updates'; }
+}
+function reviewUpdates(apps) {
+  modal(`<h2>Update ${apps.length === 1 ? esc(apps[0].name) : plural(apps.length, 'app')}?</h2><p>WinGet will run the installers for the selected packages. Save your work in these apps first.${apps.length > 1 ? ' Packages install one at a time, and most ask for administrator approval, so stay nearby. You can stop the queue from Activity.' : ''}</p>`
+    + `<div class="plan-list">${apps.map(a => `<label class="plan-row"><input type="checkbox" checked data-update-select="${esc(a.id)}"><div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc(a.version)} → ${esc(a.available)}</small></div></label>`).join('')}</div>`
+    + '<div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="confirm-updates" class="button primary">Start updates</button></div>');
+  const button = $('#confirm-updates');
+  const selection = () => [...$('#modal-content').querySelectorAll('[data-update-select]:checked')].map(x => x.dataset.updateSelect);
+  $('#modal-content').querySelectorAll('[data-update-select]').forEach(e => e.onchange = () => { button.disabled = !selection().length; });
+  button.onclick = () => { const ids = selection(); if (ids.length) queueFromModal(button, () => api.upgrade(ids), 'Updates added to the queue'); };
+}
+
+function renderReproduce() {
+  $('#body').innerHTML = '<div class="panel"><h2>Export</h2><p>Saves a manifest of your package IDs, versions, app locations, favorites and tags. Keep it with your backups, or use it to set up another Windows PC.</p><button id="export" class="button primary">Export library…</button></div>'
+    + `<div class="panel"><h2>Restore</h2><p>Open a manifest to compare it with this PC, then choose which missing packages to install.</p><button id="import" class="button subtle">Open manifest…</button>${libraryPlan ? '<button id="review-plan" class="button subtle">Review imported library</button>' : ''}</div>`
+    + '<p class="footnote">A manifest is a list of software, not a backup. App data, licences, game files and Windows settings are not included. Apps outside WinGet are listed for manual reinstall.</p>';
+  $('#export').onclick = exportLibrary;
+  $('#review-plan')?.addEventListener('click', () => showPlan(libraryPlan));
+  $('#import').onclick = () => attempt(async () => { const plan = await api.importLibrary(); if (plan) showPlan(plan); });
+}
+function showPlan(plan) {
+  libraryPlan = plan;
+  const installed = new Set(state.items.filter(a => a.packageId).map(a => (a.packageSource || 'winget') + ':' + a.packageId.toLowerCase()));
+  const packages = plan.packages.map(p => ({...p, installed: installed.has(p.key || ((p.source || 'winget') + ':' + p.id.toLowerCase()))}));
+  const references = Array.isArray(plan.references) ? plan.references : [];
+  const packageList = packages.length
+    ? `<div class="plan-list">${packages.map(p => `<label class="plan-row"><input type="checkbox" data-plan-id="${esc(p.key || p.id)}" ${p.installed ? 'disabled' : 'checked'}><div class="plan-entry"><strong>${esc(p.name)}</strong><small>${esc(p.id)} · Saved version ${esc(p.version || 'unspecified')}</small></div><span class="pill ${p.installed ? '' : 'info'}">${p.installed ? 'Installed' : 'Missing'}</span></label>`).join('')}</div>`
+      + '<label class="check"><input type="checkbox" id="exact-versions">Install the saved versions where specified</label><p>Otherwise the latest release is installed. A saved version that is no longer available fails and is reported in Activity. Apps already installed are left alone.</p>'
+    : '<p>No WinGet packages were recorded in this manifest.</p>';
+  const referenceList = references.length
+    ? `<details class="reference-checklist"><summary>Apps to reinstall manually · ${references.length}</summary><p>Use each app’s own installer, store or backup. Saved paths are from the original PC.</p><div class="plan-list">${references.map(a => `<label class="plan-row"><input type="checkbox" aria-label="Mark ${esc(a.name)} reviewed"><div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc([a.source, a.version].filter(Boolean).join(' · '))}</small>${a.location ? `<small>${esc(a.location)}</small>` : ''}</div></label>`).join('')}</div></details>`
+    : '';
+  modal('<h2>Recreate your library</h2>'
+    + `<p>${packages.filter(p => !p.installed).length} packages missing · ${packages.filter(p => p.installed).length} already installed · ${plan.referenceCount || references.length} other apps listed for reference.</p>`
+    + packageList + referenceList
+    + '<div class="restore-preferences"><h3>Favorites and tags</h3><p>Applies the saved favorites and tags to matching apps on this PC. Run it again after installing to cover the new apps.</p><button id="restore-preferences" class="button subtle">Restore favorites and tags</button><span id="restore-result" role="status"></span></div>'
+    + `<div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button><button id="confirm-plan" class="button primary" ${packages.every(p => p.installed) ? 'disabled' : ''}>Install selected</button></div>`);
+  const button = $('#confirm-plan');
+  const selection = () => [...$('#modal-content').querySelectorAll('[data-plan-id]:checked')].map(e => e.dataset.planId);
+  $('#modal-content').querySelectorAll('[data-plan-id]').forEach(e => e.onchange = () => { button.disabled = !selection().length; });
+  button.onclick = () => { const ids = selection(), exact = !!$('#exact-versions')?.checked; if (ids.length) queueFromModal(button, () => api.runPlan(ids, exact), 'Library recreation queued'); };
+  $('#restore-preferences').onclick = e => {
+    const restore = e.currentTarget, token = modalGeneration;
+    restore.disabled = true;
+    attempt(async () => {
+      const count = await api.restorePreferences();
+      if (modalIsCurrent(token)) $('#restore-result').textContent = `Restored for ${plural(count, 'matching app')}.`;
+      toast(`Favorites and tags restored for ${plural(count, 'matching app')}`);
+    }).finally(() => { if (restore.isConnected) restore.disabled = false; });
+  };
+}
+
+function renderActivityContent() {
+  const previous = new Map([...document.querySelectorAll('.activity-card[data-job]')].map(el => [el.dataset.job, {open: el.querySelector('details')?.open, scroll: el.querySelector('pre')?.scrollTop || 0}]));
+  const tone = status => status === 'completed' ? 'ok' : ['failed', 'interrupted'].includes(status) ? 'danger' : status === 'canceled' ? '' : 'info';
+  const summary = j => {
+    const r = j.results || [], ok = r.filter(x => x.success).length, skipped = r.filter(x => x.notRun).length, failed = r.length - ok - skipped;
+    return r.length > 1 ? [ok && `${ok} succeeded`, failed && `${failed} failed`, skipped && `${skipped} not run`].filter(Boolean).join(' · ') : '';
+  };
+  const progress = j => {
+    if (j.status !== 'running') return '';
+    const p = jobProgress(j);
+    const hint = p.stage === 'Installing' ? 'If nothing seems to be happening, Windows may be waiting for your permission. Look for a shield icon in the taskbar.' : 'Packages install one at a time.';
+    return `<div class="job-progress"><div><strong>${p.position} of ${p.total}</strong> · ${esc(p.name)} · ${p.stage}…</div><div class="bar"><i style="width:${Math.round(p.done / p.total * 100)}%"></i></div><small>${hint}</small>`
+      + (j.stopRequested ? '<small>Stopping after this package.</small>' : `<button class="text-button" data-stop-job="${esc(j.id)}">Stop after this package</button>`) + '</div>';
+  };
+  const outcome = r => `${esc(r.id)} · ${r.uncertain ? 'Outcome uncertain' : r.notRun ? 'Not run' : r.success ? 'Succeeded' : 'Failed'}${r.code !== undefined ? ' · Exit code ' + r.code : ''}`;
+  $('#body').innerHTML = state.jobs.length
+    ? state.jobs.map(j => `<article class="activity-card" data-job="${esc(j.id)}"><div class="activity-header"><span class="activity-icon ${tone(j.status)}">${svg(j.status === 'completed' ? 'check' : tone(j.status) === 'danger' ? 'alert' : 'download')}</span>`
+      + `<div class="plan-entry"><strong>${j.action === 'upgrade' ? 'Update' : 'Install'} · ${plural(j.packages.length, 'package')}</strong><small>${new Date(j.created).toLocaleString()}${summary(j) ? ' · ' + summary(j) : ''}</small><small class="package-ids">${esc(j.packages.map(p => p.id).join(', '))}</small></div><span class="pill ${tone(j.status)}">${esc(j.status)}</span></div>`
+      + progress(j)
+      + (j.status === 'queued' ? `<button class="text-button" data-cancel-job="${esc(j.id)}">Cancel</button>` : '')
+      + `<details><summary>Installer output</summary><pre>${esc(j.log || 'Waiting in queue…')}</pre>${(j.results || []).map(r => `<small>${outcome(r)}</small><br>`).join('')}</details></article>`).join('')
+    : '<div class="empty"><h3>No activity yet</h3><p>Installs and updates are logged here with their installer output.</p><button id="activity-updates" class="button subtle">Go to Updates</button></div>';
+  document.querySelectorAll('.activity-card[data-job]').forEach(el => {
+    const old = previous.get(el.dataset.job);
+    if (old) { el.querySelector('details').open = old.open; el.querySelector('pre').scrollTop = old.scroll; }
+  });
+  document.querySelectorAll('[data-cancel-job]').forEach(b => b.onclick = () => attempt(() => api.cancelJob(b.dataset.cancelJob)));
+  document.querySelectorAll('[data-stop-job]').forEach(b => b.onclick = () => attempt(() => api.stopJob(b.dataset.stopJob)));
+  $('#activity-updates')?.addEventListener('click', () => navigate('updates'));
+}
+
+function runtimeRow(role) {
+  const runtime = (role === 'embedding' ? state.ai : state.reasoner) || {};
+  return `<div class="setting-row"><div><strong id="${role}-title">${esc(modelName(role))}</strong><small id="${role}-runtime">${esc(runtime.message || 'Sleeping')}${runtime.pid ? ' · Process ' + runtime.pid : ''}</small></div><span id="${role}-runtime-status" class="pill">${esc(runtime.status || 'sleeping')}</span></div>`;
+}
+function renderPreferences() {
+  const folders = state.prefs.folders || [];
+  const unavailable = folder => state.sourceHealth?.find(h => h.type === 'portable-folder' && h.path === folder)?.status === 'unavailable';
+  $('#body').innerHTML = [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('')
+    + `<div class="panel"><h2>Appearance</h2><div class="swatches" role="radiogroup" aria-label="Theme">${THEMES.map(t =>
+      `<button class="swatch${theme === t.id ? ' active' : ''}" role="radio" aria-checked="${theme === t.id}" data-theme-choice="${t.id}"><span class="swatch-preview${t.colors ? '' : ' system'}" style="${t.colors ? `background:${t.colors[0]};color:${t.colors[2]}` : ''}"><i style="${t.colors ? `background:${t.colors[1]}` : ''}"></i>Aa</span>${t.name}</button>`).join('')}</div>`
+    + `<div class="accents" role="radiogroup" aria-label="Accent colour"><span>Accent</span>${ACCENTS.map(([id, label, color]) =>
+      `<button class="accent-dot${accent === id ? ' active' : ''}" role="radio" aria-checked="${accent === id}" data-accent-choice="${id}" title="${label}" aria-label="${label}" style="background:${color}"></button>`).join('')}</div></div>`
+    + `<div class="panel"><h2>Local AI search</h2><p id="model-description">${esc(modelDescription())}</p>`
+    + `<label class="setting-row"><div><strong>Use local AI search</strong><small>Runs on the CPU. The interpretation model reads every search except an exact app name, which takes a few seconds. Both models unload 60 seconds after use.</small></div><input id="ai-toggle" class="switch" type="checkbox" ${state.prefs.aiEnabled !== false ? 'checked' : ''}></label>`
+    + runtimeRow('embedding') + runtimeRow('reasoning') + '</div>'
+    + '<div id="local-models"></div>'
+    + '<div class="panel"><h2>Library sources</h2><p>AppHub reads the Windows registry, Start menu, shortcuts, Store entries, WinGet and Steam. Add anything those miss.</p>'
+    + `<button id="prefs-add" class="button subtle">${svg('plus')}Add an app…</button><button id="prefs-folder" class="button subtle">${svg('folder')}Add a folder…</button>`
+    + (folders.length ? `<div class="folder-list"><small>Folders scanned on sync (top level only)</small>${folders.map(folder => `<div class="watched-folder"><span>${esc(folder)}${unavailable(folder) ? '<small> · Unavailable — reconnect and sync to retry</small>' : ''}</span><button class="text-button" data-remove-folder="${esc(folder)}">Stop scanning</button></div>`).join('')}</div>` : '')
+    + '</div>'
+    + `<div class="panel"><h2>Data</h2><p>Your library, preferences, search index and package history are stored on this PC. There is no account and no telemetry.</p><button id="open-data" class="button subtle">${svg('folder')}Open data folder</button><small class="path">${esc(state.dataDirectory || '')}</small></div>`
+    + `<p class="footnote">AppHub ${esc(state.appVersion || '1.0.0')}</p>`;
+  renderModels();
+  document.querySelectorAll('[data-remove-folder]').forEach(b => b.onclick = () => attempt(() => api.removeFolder(b.dataset.removeFolder)));
+  document.querySelectorAll('[data-theme-choice]').forEach(b => b.onclick = () => { theme = b.dataset.themeChoice; store('theme', theme); applyAppearance(); render(); });
+  document.querySelectorAll('[data-accent-choice]').forEach(b => b.onclick = () => { accent = b.dataset.accentChoice; store('accent', accent); applyAppearance(); render(); });
+  $('#ai-toggle').onchange = e => attempt(() => api.setAI(e.target.checked));
+  $('#prefs-add').onclick = () => attempt(() => api.addApp());
+  $('#prefs-folder').onclick = () => attempt(() => api.addFolder());
+  $('#open-data').onclick = () => attempt(() => api.openData());
+}
+
+function renderDiscover() {
+  const rows = catalogPackages === null ? ''
+    : catalogPackages.map(p => `<div class="update-row"><div class="plan-entry"><strong>${esc(p.name)}</strong><small>${esc(p.id)} · ${esc(p.version)}</small></div><button class="button subtle" data-catalog="${esc(p.id)}">View…</button></div>`).join('')
+      || '<div class="empty"><h3>No packages found</h3><p>Try the app’s name or its publisher.</p></div>';
+  $('#body').innerHTML = `<form id="catalog-form" class="large-search"><input id="catalog-query" class="text-input" value="${esc(catalogQuery)}" placeholder="Package name, such as VLC, Blender or PowerToys" aria-label="Search WinGet catalog" minlength="2" maxlength="100" required><button id="catalog-submit" class="button primary" ${catalogLoading ? 'disabled' : ''}>${catalogLoading ? 'Searching…' : 'Search WinGet'}</button></form>`
+    + `<div id="catalog-results" class="rows" aria-live="polite">${rows}</div>`
+    + '<p class="footnote">Results come from the WinGet community repository. You see the package details before anything is installed.</p>';
+  $('#catalog-query').oninput = e => { catalogQuery = e.target.value; };
+  $('#catalog-results').onclick = e => { const button = e.target.closest('[data-catalog]'); if (button) inspectCatalog(catalogPackages?.find(p => p.id === button.dataset.catalog)); };
+  $('#catalog-form').onsubmit = async e => {
+    e.preventDefault();
+    const q = $('#catalog-query').value.trim();
+    if (q.length < 2) { toast('Enter at least two characters', true); return; }
+    catalogQuery = q;
+    const seq = ++catalogGeneration;
+    catalogLoading = true;
+    renderDiscover();
+    try {
+      const packages = await api.catalog(q);
+      if (seq === catalogGeneration) catalogPackages = packages;
+    } catch (error) {
+      if (seq === catalogGeneration) toast(cleanError(error), true);
+    } finally {
+      if (seq === catalogGeneration) { catalogLoading = false; if (view === 'discover' && !query.trim()) renderDiscover(); }
+    }
+  };
+}
+async function packageInfo(a) {
+  const close = '<div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button></div>';
+  const token = modal(`<h2>${esc(a.name)}</h2><p>Reading ${esc(a.packageId)} from WinGet…</p>${close}`);
+  try {
+    const text = await api.packageInfo({id: a.packageId, source: a.packageSource});
+    if (modalIsCurrent(token)) modal(`<h2>${esc(a.name)}</h2><pre>${esc(text)}</pre>${close}`);
+  } catch (e) {
+    if (modalIsCurrent(token)) { closeModal(); toast(cleanError(e), true); }
+  }
+}
+async function inspectCatalog(p) {
+  if (!p) return;
+  const token = modal(`<h2>${esc(p.name)}</h2><p>Loading package details…</p><div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button></div>`);
+  try {
+    const info = await api.packageInfo(p);
+    if (!modalIsCurrent(token)) return;
+    modal(`<h2>${esc(p.name)}</h2><p>Check the publisher, licence and installer. WinGet installs the latest release.</p><pre>${esc(info)}</pre><div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="catalog-install" class="button primary">Install</button></div>`);
+    $('#catalog-install').onclick = e => queueFromModal(e.currentTarget, () => api.install(p), 'Installation queued');
+  } catch (e) {
+    if (modalIsCurrent(token)) { closeModal(); toast(cleanError(e), true); }
+  }
+}
+
+function renderModelsContent() {
+  const host = $('#local-models'), m = state.models;
+  if (!host) return;
+  if (!m) { host.innerHTML = '<section class="panel"><h2>Local models</h2><p>Loading model settings…</p></section>'; return; }
+  const profiles = m.profiles || [];
+  if (!modelDraft) modelDraft = {...m.active, threads: m.settings?.threads || 4, context: m.settings?.context || 4096, queryPrefix: m.settings?.queryPrefix || '', documentPrefix: m.settings?.documentPrefix || ''};
+  for (const role of ['embedding', 'reasoning']) if (modelDraft[role] !== 'off' && !profiles.some(p => p.id === modelDraft[role])) modelDraft[role] = m.active[role];
+  const busy = modelPending || m.busy, open = host.querySelector('details')?.open, off = busy ? 'disabled' : '';
+
+  const choice = role => {
+    const p = profiles.find(p => p.id === modelDraft[role]), test = p?.lastTest;
+    const options = (role === 'reasoning' ? `<option value="off" ${modelDraft[role] === 'off' ? 'selected' : ''}>Off — embeddings only</option>` : '')
+      + profiles.filter(p => p.role === role).map(p => `<option value="${esc(p.id)}" ${modelDraft[role] === p.id ? 'selected' : ''}>${esc(p.name)}${m.active[role] === p.id ? ' · Active' : ''}${p.builtin ? ' · Bundled' : ''}</option>`).join('');
+    const tested = test
+      ? (test.ok ? 'Check passed' : 'Check failed') + ' · ' + esc(test.message || '') + (test.dimensions ? ' · ' + esc(test.dimensions) + ' dimensions' : '') + (test.elapsedMs ? ' · ' + (test.elapsedMs / 1000).toFixed(1) + 's' : '') + (p.validatedAt ? ' · ' + esc(new Date(p.validatedAt).toLocaleString()) : '')
+      : 'Not checked yet';
+    const info = p
+      ? `<strong>${p.builtin ? 'Bundled' : 'Local'}${p.bytes ? ' · ' + (p.bytes / 1048576).toFixed(1) + ' MB' : ''}${p.dtype ? ' · ' + esc(p.dtype) : ''}</strong><span>${esc(p.location || 'Bundled with AppHub')}</span><span>${tested}</span>`
+      : 'Matching by meaning still works with interpretation off.';
+    return `<div class="model-choice"><label for="model-${role}">${role === 'embedding' ? 'Matching model' : 'Interpretation model'}</label><select id="model-${role}" ${off}>${options}</select><div class="model-info">${info}</div>`
+      + `<div class="model-actions"><button class="button subtle" data-model-add="${role}" ${off}>${svg('plus')}Add local model…</button><button class="button primary" data-model-use="${role}" ${off}>${modelDraft[role] === 'off' ? 'Use embeddings only' : 'Test & use'}</button>`
+      + (p && !p.builtin && m.active[role] !== p.id ? `<button class="text-button" data-model-remove="${esc(p.id)}" ${off}>Remove from list</button>` : '') + '</div></div>';
+  };
+  const tuning = [['threads', 'CPU threads', [1, 2, 4, 6, 8]], ['context', 'Context size', [2048, 4096, 8192]]]
+    .map(([key, label, values]) => `<label>${label} <select id="model-${key}" ${off}>${values.map(n => `<option ${+modelDraft[key] === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`).join('');
+  const prefixes = ['queryPrefix', 'documentPrefix']
+    .map(key => `<label class="model-prefix">${key === 'queryPrefix' ? 'Search prefix' : 'Document prefix'} <input id="model-${key}" class="text-input" maxlength="100" value="${esc(modelDraft[key])}" ${off}></label>`).join('');
+
+  host.innerHTML = '<section class="panel models-panel"><h2>Local models</h2><p>Pick the models used for matching and interpretation. The current model stays active until the replacement passes its compatibility check.</p>'
+    + `<div class="model-grid">${['embedding', 'reasoning'].map(choice).join('')}</div>`
+    + `<div class="model-tuning">${tuning}<small>Applied when you test and use an interpretation model.</small></div>`
+    + `<div class="notice ${modelError || m.warning ? 'warn' : ''}" role="status" aria-live="polite">${esc(modelError || m.warning || m.message || (busy ? 'Checking compatibility…' : 'Ready.'))}</div>`
+    + `<details ${open ? 'open' : ''}><summary>Compatibility details</summary><p>For matching, choose a local Transformers.js folder with config, tokenizer and ONNX files. It must support feature extraction with mean pooling. For interpretation, choose a GGUF file with a chat template that fits this PC’s CPU and memory. Larger context sizes need more memory.</p><p>Removing an entry leaves its files on your PC.</p>${prefixes}<p>Leave prefixes empty unless the matching model requires them, such as E5’s query: and passage: prefixes.</p></details>`
+    + `<button id="models-reset" class="button subtle" ${off}>Reset to bundled models</button></section>`;
+
+  for (const role of ['embedding', 'reasoning']) $('#model-' + role).onchange = e => { modelDraft[role] = e.target.value; modelError = ''; renderModels(); };
+  for (const key of ['threads', 'context']) $('#model-' + key).onchange = e => modelDraft[key] = +e.target.value;
+  for (const key of ['queryPrefix', 'documentPrefix']) $('#model-' + key).oninput = e => modelDraft[key] = e.target.value;
+  host.querySelectorAll('[data-model-add]').forEach(b => b.onclick = () => runModelAction(async () => {
+    const before = new Set((state.models?.profiles || []).map(p => p.id)), result = await api.addModel(b.dataset.modelAdd);
+    if (result) { const p = result.profiles?.find(p => !before.has(p.id)); if (p) modelDraft[p.role] = p.id; }
+    return result;
+  }));
+  host.querySelectorAll('[data-model-use]').forEach(b => b.onclick = () => runModelAction(() => api.activateModel(b.dataset.modelUse, modelDraft[b.dataset.modelUse], {threads: +modelDraft.threads, context: +modelDraft.context, queryPrefix: modelDraft.queryPrefix, documentPrefix: modelDraft.documentPrefix})));
+  host.querySelectorAll('[data-model-remove]').forEach(b => b.onclick = () => runModelAction(() => api.removeModel(b.dataset.modelRemove)));
+  $('#models-reset').onclick = () => runModelAction(async () => { const r = await api.resetModels(); modelDraft = null; return r; });
+}
+async function runModelAction(action) {
+  if (modelPending || state.models?.busy) return;
+  modelPending = true; modelError = '';
+  renderModels();
+  try {
+    const result = await action();
+    if (result) state.models = result.models || result;
+  } catch (e) {
+    modelError = cleanError(e);
+  } finally {
+    modelPending = false;
+    if (view === 'preferences' && !query) renderModels();
+    updateFooter();
+  }
+}
+function updateModelRuntime() {
+  const description = $('#model-description');
+  if (description) description.textContent = modelDescription();
+  for (const role of ['embedding', 'reasoning']) {
+    const runtime = (role === 'embedding' ? state.ai : state.reasoner) || {};
+    const title = $(`#${role}-title`), detail = $(`#${role}-runtime`), status = $(`#${role}-runtime-status`);
+    if (title) title.textContent = modelName(role);
+    if (detail) detail.textContent = (runtime.message || 'Sleeping') + (runtime.pid ? ' · Process ' + runtime.pid : '');
+    if (status) status.textContent = runtime.status || 'sleeping';
+  }
+}
+
+$('#modal').addEventListener('cancel', () => { modalGeneration++; });
+
 let debounce;
-$('#search').oninput=()=>{
- if(searching)api.cancelSearch?.().catch(()=>{});clearTimeout(debounce);query=$('#search').value.trim();const seq=++generation;searching=!!query.trim();searchWarning='';searchAnswer='';searchRecommendations=[];reasoningWarning='';results=searching?[]:null;selected=null;render();if(!searching)return;
- const q=query;let semanticFinished=false;
- api.search(q,false).then(r=>{if(seq===generation&&!semanticFinished){results=r.items;renderLibrary();}}).catch(e=>{if(seq===generation&&!semanticFinished)toast(e.message,true);});
- debounce=setTimeout(async()=>{try{const r=await api.search(q,true);if(seq!==generation)return;semanticFinished=true;searching=false;results=r.items;searchWarning=r.warning||'';searchAnswer=typeof r.answer==='string'?r.answer:'';searchRecommendations=Array.isArray(r.recommendations)?[...new Set(r.recommendations.filter(id=>typeof id==='string'))].slice(0,3):[];reasoningWarning=r.reasoningWarning||'';if(r.ai)state.ai=r.ai;if(r.reasoner)state.reasoner=r.reasoner;renderLibrary();updateFooter();}catch(e){if(seq!==generation)return;searching=false;searchWarning='Local AI search is unavailable';renderLibrary();toast(e.message,true);}},300);
+$('#search').oninput = () => {
+  if (searching) api.cancelSearch?.().catch(() => {});
+  clearTimeout(debounce);
+  query = $('#search').value.trim();
+  const seq = ++generation;
+  searching = !!query.trim();
+  searchWarning = ''; searchAnswer = ''; searchRecommendations = []; reasoningWarning = '';
+  results = searching ? [] : null;
+  selected = null;
+  render();
+  if (!searching) return;
+  const q = query;
+  let semanticFinished = false;
+  api.search(q, false)
+    .then(r => { if (seq === generation && !semanticFinished) { results = r.items; renderLibrary(); } })
+    .catch(e => { if (seq === generation && !semanticFinished) toast(cleanError(e), true); });
+  debounce = setTimeout(async () => {
+    try {
+      const r = await api.search(q, true);
+      if (seq !== generation) return;
+      semanticFinished = true; searching = false;
+      results = r.items;
+      searchWarning = r.warning || '';
+      searchAnswer = typeof r.answer === 'string' ? r.answer : '';
+      searchRecommendations = Array.isArray(r.recommendations) ? [...new Set(r.recommendations.filter(id => typeof id === 'string'))].slice(0, 3) : [];
+      reasoningWarning = r.reasoningWarning || '';
+      if (r.ai) state.ai = r.ai;
+      if (r.reasoner) state.reasoner = r.reasoner;
+      renderLibrary();
+      updateFooter();
+    } catch (e) {
+      if (seq !== generation) return;
+      searching = false;
+      searchWarning = 'Local AI search is unavailable';
+      renderLibrary();
+      toast(cleanError(e), true);
+    }
+  }, 300);
 };
-$('#search').onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();$('#app-list .app-card')?.focus();}if(e.key==='Enter'){e.preventDefault();const a=visibleItems()[0];if(a){selected=a.id;renderDetails();focusDetails();}}};
-$('#navigation').onclick=e=>{const b=e.target.closest('[data-view]');if(b)navigate(b.dataset.view);};$('#categories').onclick=e=>{const b=e.target.closest('[data-category]');if(b)navigate('all',b.dataset.category);};$('#preferences').onclick=()=>navigate('preferences');$('#ai-status').onclick=()=>navigate('preferences');$('#add-app').onclick=()=>attempt(()=>api.addApp());$('#refresh').onclick=()=>attempt(async()=>{await api.scan();toast('Library synced');});
-for(const a of ['minimize','maximize','close'])$('#'+a).onclick=()=>api.windowAction(a);
-document.addEventListener('keydown',e=>{if(!$('#modal').open&&(e.ctrlKey||e.metaKey)&&['k','f'].includes(e.key.toLowerCase())){e.preventDefault();$('#search').focus();$('#search').select();}if(e.key==='Escape'){if($('#modal').open){e.preventDefault();closeModal();}else if(selected){$('#close-detail').click();}else if(query){$('#search').value='';$('#search').dispatchEvent(new Event('input'));}}});
-api.onChange(data=>{if(data.searchPreview){if(data.searchPreview.query===query&&searching){results=data.searchPreview.items;renderLibrary();}return;}if(data.focusSearch){$('#search').focus();return;}if(data.error){toast(data.error,true);return;}if(data.models)state.models=data.models;if(data.ai||data.reasoner){if(data.ai)state.ai=data.ai;if(data.reasoner)state.reasoner=data.reasoner;updateFooter();if(view==='preferences'&&!query){updateModelRuntime();if(data.models)renderModels();}return;}if(data.models){state.models=data.models;if(view==='preferences'&&!query)renderModels();updateFooter();return;}if(data.jobUpdate){const j=state.jobs.find(j=>j.id===data.jobUpdate.id);if(j)Object.assign(j,data.jobUpdate);if(view==='activity'&&!query)renderActivity();return;}state={...state,...data};if(results){const lookup=new Map(state.items.map(a=>[a.id,a]));results=results.filter(a=>lookup.has(a.id)).map(a=>({...a,...lookup.get(a.id)}));}render();});
-attempt(async()=>{state=await api.snapshot();render();});
+$('#search').onkeydown = e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); $('#app-list .app-card')?.focus(); }
+  if (e.key === 'Enter') { e.preventDefault(); const a = query && visibleItems()[0]; if (a) activate(a.id); }
+};
 
-function renderModelsContent(){const host=$('#local-models'),m=state.models;if(!host)return;if(!m){host.innerHTML='<section class="panel"><h2>Your local models</h2><p>Loading model settings…</p></section>';return;}const profiles=m.profiles||[];if(!modelDraft)modelDraft={...m.active,threads:m.settings?.threads||4,context:m.settings?.context||4096,queryPrefix:m.settings?.queryPrefix||'',documentPrefix:m.settings?.documentPrefix||''};for(const role of ['embedding','reasoning'])if(modelDraft[role]!=='off'&&!profiles.some(p=>p.id===modelDraft[role]))modelDraft[role]=m.active[role];const busy=modelPending||m.busy,open=host.querySelector('details')?.open;host.innerHTML='<section class="panel models-panel"><div class="eyebrow">ON THIS PC</div><h2>Your local models</h2><p>Choose models for matching and interpretation. Your current model stays active until the compatibility check succeeds.</p><div class="model-grid">'+['embedding','reasoning'].map(role=>{const p=profiles.find(p=>p.id===modelDraft[role]),test=p?.lastTest;return '<div class="model-choice"><label for="model-'+role+'">'+(role==='embedding'?'Find matches by meaning':'Interpret longer requests')+'</label><select id="model-'+role+'" '+(busy?'disabled':'')+'>'+(role==='reasoning'?'<option value="off" '+(modelDraft[role]==='off'?'selected':'')+'>Off — embeddings only</option>':'')+profiles.filter(p=>p.role===role).map(p=>'<option value="'+esc(p.id)+'" '+(modelDraft[role]===p.id?'selected':'')+'>'+esc(p.name)+(m.active[role]===p.id?' · Active':'')+(p.builtin?' · Bundled':'')+'</option>').join('')+'</select><div class="model-info">'+(p?'<strong>'+(p.builtin?'Bundled':'Local')+(p.bytes?' · '+(p.bytes/1048576).toFixed(1)+' MB':'')+(p.dtype?' · '+esc(p.dtype):'')+'</strong><span>'+esc(p.location||'Bundled with AppHub')+'</span><span>'+(test?(test.ok?'Check passed':'Check failed')+' · '+esc(test.message||'')+(test.dimensions?' · '+esc(test.dimensions)+' dimensions':'')+(test.elapsedMs?' · '+(test.elapsedMs/1000).toFixed(1)+'s':'')+(p.validatedAt?' · '+esc(new Date(p.validatedAt).toLocaleString()):''):'Not checked yet')+'</span>':'Meaning-based matching remains available with interpretation off.')+'</div><div class="model-actions"><button class="button subtle" data-model-add="'+role+'" '+(busy?'disabled':'')+'>＋ Add local model</button><button class="button primary" data-model-use="'+role+'" '+(busy?'disabled':'')+'>'+(modelDraft[role]==='off'?'Use embeddings only':'Test & use')+'</button>'+(p&&!p.builtin&&m.active[role]!==p.id?'<button class="text-button" data-model-remove="'+esc(p.id)+'" '+(busy?'disabled':'')+'>Remove from list</button>':'')+'</div></div>';}).join('')+'</div><div class="model-tuning">'+[['threads','CPU threads',[1,2,4,6,8]],['context','Context size',[2048,4096,8192]]].map(([key,label,values])=>'<label>'+label+' <select id="model-'+key+'" '+(busy?'disabled':'')+'>'+values.map(n=>'<option '+(+modelDraft[key]===n?'selected':'')+'>'+n+'</option>').join('')+'</select></label>').join('')+'<small>Applied when you test and use an interpretation model.</small></div><div class="notice '+(modelError||m.warning?'warn':'')+'" role="status" aria-live="polite">'+esc(modelError||m.warning||m.message||(busy?'Checking compatibility…':'Ready. Models change after successful validation.'))+'</div><details '+(open?'open':'')+'><summary>Compatibility details</summary><p>For matching, choose a local Transformers.js folder with config, tokenizer and ONNX files. It must support feature extraction with mean pooling. For interpretation, choose a GGUF file with a chat template that fits your PC’s CPU and memory. Larger context sizes require more memory.</p><p>Removing an entry leaves its files on your PC.</p>'+['queryPrefix','documentPrefix'].map(key=>'<label class="model-prefix">'+(key==='queryPrefix'?'Search prefix':'Document prefix')+' <input id="model-'+key+'" maxlength="100" value="'+esc(modelDraft[key])+'" '+(busy?'disabled':'')+'></label>').join('')+'<p>Leave prefixes empty unless the matching model requires them, such as E5’s query: and passage: prefixes.</p></details><button id="models-reset" class="button subtle" '+(busy?'disabled':'')+'>Reset bundled defaults</button></section>';
-for(const role of ['embedding','reasoning'])$('#model-'+role).onchange=e=>{modelDraft[role]=e.target.value;modelError='';renderModels();};for(const key of ['threads','context'])$('#model-'+key).onchange=e=>modelDraft[key]=+e.target.value;for(const key of ['queryPrefix','documentPrefix'])$('#model-'+key).oninput=e=>modelDraft[key]=e.target.value;host.querySelectorAll('[data-model-add]').forEach(b=>b.onclick=()=>runModelAction(async()=>{const before=new Set((state.models?.profiles||[]).map(p=>p.id)),result=await api.addModel(b.dataset.modelAdd);if(result){const p=result.profiles?.find(p=>!before.has(p.id));if(p)modelDraft[p.role]=p.id;}return result;}));host.querySelectorAll('[data-model-use]').forEach(b=>b.onclick=()=>runModelAction(()=>api.activateModel(b.dataset.modelUse,modelDraft[b.dataset.modelUse],{threads:+modelDraft.threads,context:+modelDraft.context,queryPrefix:modelDraft.queryPrefix,documentPrefix:modelDraft.documentPrefix})));host.querySelectorAll('[data-model-remove]').forEach(b=>b.onclick=()=>runModelAction(()=>api.removeModel(b.dataset.modelRemove)));$('#models-reset').onclick=()=>runModelAction(async()=>{const r=await api.resetModels();modelDraft=null;return r;});}
-async function runModelAction(action){if(modelPending||state.models?.busy)return;modelPending=true;modelError='';renderModels();try{const result=await action();if(result)state.models=result.models||result;}catch(e){modelError=(e.message||String(e)).replace(/^Error invoking remote method '[^']+': Error: /,'');}finally{modelPending=false;if(view==='preferences'&&!query)renderModels();updateFooter();}}
+$('#refresh').innerHTML = svg('sync') + '<span>Sync</span>';
+$('#preferences').innerHTML = svg('gear') + '<span class="nav-text">Settings</span>';
+$('#navigation').onclick = e => { const b = e.target.closest('[data-view]'); if (b) navigate(b.dataset.view); };
+$('#preferences').onclick = () => navigate('preferences');
+$('#ai-status').onclick = () => navigate('preferences');
+$('#job-status').onclick = () => navigate('activity');
+$('#refresh').onclick = () => attempt(async () => { await api.scan(); toast('Library synced'); });
+for (const a of ['minimize', 'maximize', 'close']) $('#' + a).onclick = () => api.windowAction(a);
 
-function updateModelRuntime(){const description=$('#model-description'),summary=$('#model-summary');if(description)description.textContent=modelName('embedding')+' retrieves apps and Windows settings by meaning. '+(state.models?.active.reasoning==='off'?'Interpretation is off.':modelName('reasoning')+' interprets longer task requests and explains relevant matches from your library.')+' Exact names, partial names, and typos also work. Queries and your software inventory stay on this PC.';if(summary)summary.textContent=modelName('embedding')+' · '+modelName('reasoning')+' · CPU';for(const role of ['embedding','reasoning']){const runtime=(role==='embedding'?state.ai:state.reasoner)||{},detail=$('#'+role+'-runtime'),status=$('#'+role+'-runtime-status');if(detail){detail.textContent=(runtime.message||'Sleeping')+(runtime.pid?' · Process '+runtime.pid:'');detail.previousElementSibling.textContent=modelName(role)+(role==='embedding'?' retrieval':' interpretation');}if(status)status.textContent=runtime.status||'sleeping';}}
+document.addEventListener('keydown', e => {
+  if (!$('#modal').open && (e.ctrlKey || e.metaKey) && ['k', 'f'].includes(e.key.toLowerCase())) { e.preventDefault(); $('#search').focus(); $('#search').select(); }
+  if (e.key === 'Escape') {
+    if ($('#modal').open) { e.preventDefault(); closeModal(); }
+    else if (selected) $('#close-detail').click();
+    else if (query) { $('#search').value = ''; $('#search').dispatchEvent(new Event('input')); }
+  }
+});
+
+api.onChange(data => {
+  if (data.searchPreview) {
+    if (data.searchPreview.query === query && searching) { results = data.searchPreview.items; renderLibrary(); }
+    return;
+  }
+  if (data.focusSearch) { $('#search').focus(); return; }
+  if (data.error) { toast(data.error, true); return; }
+  if (data.models) state.models = data.models;
+  if (data.ai || data.reasoner) {
+    if (data.ai) state.ai = data.ai;
+    if (data.reasoner) state.reasoner = data.reasoner;
+    updateFooter();
+    if (view === 'preferences' && !query) { updateModelRuntime(); if (data.models) renderModels(); }
+    return;
+  }
+  if (data.models) {
+    if (view === 'preferences' && !query) renderModels();
+    updateFooter();
+    return;
+  }
+  if (data.jobUpdate) {
+    const j = state.jobs.find(j => j.id === data.jobUpdate.id);
+    if (j) Object.assign(j, data.jobUpdate);
+    updateJobStatus();
+    if (view === 'activity' && !query) renderActivity();
+    return;
+  }
+  state = {...state, ...data};
+  if (results) {
+    const lookup = new Map(state.items.map(a => [a.id, a]));
+    results = results.filter(a => lookup.has(a.id)).map(a => ({...a, ...lookup.get(a.id)}));
+  }
+  render();
+});
+attempt(async () => { state = await api.snapshot(); render(); });

@@ -31,25 +31,25 @@ async function start(){
  handle('scan',async()=>{await library.scan();return library.checkPackages();});handle('packages',()=>library.checkPackages());
  handle('search',async(query,semantic=true)=>{
   if(typeof query!=='string'||query.length>300)throw new Error('Search is too long');
-  const seq=++searchSequence;if(query!==lastSearchQuery){lastSearchQuery=query;if(reasoner.pending.size)reasoner.stop();if(ai.pending.size)ai.stop();}
+  const seq=++searchSequence;if(query!==lastSearchQuery){lastSearchQuery=query;reasoner.cancel();if(ai.pending.size)ai.stop();}
   const items=library.all().filter(a=>!a.hidden);if(!query.trim())return {items,mode:'browse',ai:ai.state,reasoner:reasoner.state};
   let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,recommendations=[],reasoningWarning=null,reasoning=false;
   if(semantic&&library.prefs.aiEnabled&&!models.busy)try{warning=validateSearchModels()||warning;scores=await ai.search(query,items.map(a=>({id:a.id,text:document(a)})));}catch(e){warning=e.message;}
   let ranked=rank(query,items,scores);
   if(seq===searchSequence&&semantic&&library.prefs.aiEnabled&&!models.busy&&models.active.reasoning!=='off'&&ranked.length&&shouldInterpret(query,ranked)){
    broadcast({searchPreview:{query,items:ranked}});
-   try{warning=validateSearchModels()||warning;const candidates=ranked.slice(0,10).map(a=>({...a,searchText:document(a)}));const interpreted=validateAnswer(await reasoner.interpret(query,candidates),candidates);if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;recommendations=interpreted.matches.map(m=>m.id);reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
+   try{warning=validateSearchModels()||warning;const candidates=ranked.slice(0,16).map(a=>({...a,searchText:document(a)}));const interpreted=validateAnswer(await reasoner.interpret(query,candidates),candidates);if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;recommendations=interpreted.matches.map(m=>m.id);reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
    catch(e){if(seq===searchSequence)reasoningWarning=e.message;}
   }
   if(seq===searchSequence&&ai.worker&&!ai.pending.size)ai.arm();
   return {items:ranked,mode:Object.keys(scores).length?'semantic':'keyword',warning,answer,recommendations,reasoning,reasoningWarning,ai:ai.state,reasoner:reasoner.state};
  });
- handle('cancelSearch',()=>{searchSequence++;if(ai.pending.size)ai.stop();if(reasoner.pending.size)reasoner.stop();return {ok:true};});
+ handle('cancelSearch',()=>{searchSequence++;if(ai.pending.size)ai.stop();reasoner.cancel();return {ok:true};});
  handle('addModel',async role=>{if(!['embedding','reasoning'].includes(role))throw new Error('Unknown model role');if(models.busy)throw new Error('Wait for the model check to finish');const result=await dialog.showOpenDialog(win,{title:role==='reasoning'?'Choose a local GGUF chat model':'Choose a local ONNX embedding model folder',...(role==='reasoning'?{filters:[{name:'GGUF model',extensions:['gguf']}]}:{}),properties:[role==='reasoning'?'openFile':'openDirectory']});if(result.canceled)return null;return models.add(role,result.filePaths[0]);});
  handle('activateModel',async(role,id,limits={})=>{if(models.busy)throw new Error('Wait for the model check to finish');searchSequence++;ai.stop();reasoner.stop();try{return await models.activate(role,id,limits);}finally{configureEngines();}});
  handle('resetModels',()=>{if(models.busy)throw new Error('Wait for the model check to finish');searchSequence++;ai.stop();reasoner.stop();const result=models.reset();configureEngines();return result;});
  handle('removeModel',id=>models.remove(id));
- handle('removeApp',id=>library.removeCustom(id));handle('removeFolder',async folder=>{library.removeFolder(folder);return library.scan();});handle('cancelJob',id=>library.cancelJob(id));
+ handle('removeApp',id=>library.removeCustom(id));handle('removeFolder',async folder=>{library.removeFolder(folder);return library.scan();});handle('cancelJob',id=>library.cancelJob(id));handle('stopJob',id=>library.stopJob(id));
  handle('modify',(id,field,value)=>library.modify(id,field,value));
  handle('launch',async id=>{const a=library.all().find(a=>a.id===id);if(!a?.launch)throw new Error('No launch target found. Open its install folder or add its executable.');const {type,target}=a.launch;
  if(type==='uri'){if(!/^(ms-settings:[a-z-]+|steam:\/\/rungameid\/\d+)$/.test(target))throw new Error('Unsupported launch URI');await shell.openExternal(target);}
@@ -69,9 +69,9 @@ async function start(){
  handle('packageInfo',async p=>{validatePackage(p);const r=await run('winget.exe',['show','--id',p.id,'--exact','--source',p.source,'--accept-source-agreements','--disable-interactivity'],{timeout:90000});if(r.code!==0)throw new Error(r.out||r.err);return r.out;});
  handle('setAI',enabled=>{library.prefs.aiEnabled=!!enabled;if(!enabled){ai.stop();reasoner.stop();searchSequence++;}library.save('preferences.json',library.prefs);library.notify();return ai.state;});
  handle('openData',()=>shell.openPath(data));handle('windowAction',action=>{if(action==='minimize')win.minimize();else if(action==='maximize')win.isMaximized()?win.unmaximize():win.maximize();else if(action==='close')win.close();});
- win=new BrowserWindow({width:1380,height:900,minWidth:980,minHeight:640,backgroundColor:'#0b0e14',title:'AppHub',icon:path.join(__dirname,'../assets/apphub.ico'),autoHideMenuBar:true,show:false,titleBarStyle:'hidden',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ win=new BrowserWindow({width:1380,height:900,minWidth:980,minHeight:640,backgroundColor:'#17181b',title:'AppHub',icon:path.join(__dirname,'../assets/apphub.ico'),autoHideMenuBar:true,show:false,titleBarStyle:'hidden',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.webContents.session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));
- win.on('close',e=>{if(library.jobs.some(j=>['running','queued'].includes(j.status))){e.preventDefault();dialog.showMessageBox(win,{type:'info',title:'Package operations are still running',message:'Keep AppHub open until the package queue finishes.',detail:'You can minimize the window and follow progress in Activity.',buttons:['Keep running']});}});
+ win.on('close',e=>{if(library.jobs.some(j=>['running','queued'].includes(j.status))){e.preventDefault();dialog.showMessageBox(win,{type:'info',title:'Package operations are still running',message:'Keep AppHub open until the package queue finishes.',detail:'You can minimize the window and follow progress in Activity. Stopping lets the current installer finish and skips the rest.',buttons:['Keep running','Stop after this package'],defaultId:0,cancelId:0}).then(r=>{if(r.response===1)library.stopAll();}).catch(()=>{});}});
  await win.loadFile(path.join(__dirname,'ui/index.html'));win.show();
  globalShortcut.register('CommandOrControl+Alt+Space',()=>{if(windowDelivery.focus())broadcast({focusSearch:true});});
  library.scan().then(()=>{loadIcons();if(!library.state.packageChecked||Date.now()-new Date(library.state.packageChecked)>21600000)return library.checkPackages();}).catch(e=>broadcast({error:e.message}));

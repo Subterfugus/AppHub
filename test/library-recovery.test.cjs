@@ -56,3 +56,11 @@ test('uncertain installer timeout cancels remaining packages and queued jobs wit
  assert.deepEqual(calls,['Vendor.First']);assert.equal(refreshed,0);assert.equal(active.status,'failed');assert.equal(active.results[0].uncertain,true);assert.equal(active.results[0].success,false);assert.equal(active.results[1].notRun,true);assert.equal(queued.status,'canceled');assert.equal(queued.results[0].notRun,true);assert.ok(queued.finished);assert.match(active.log,/installer may still be running/);assert.match(active.log,/sync the library or check for updates/);assert.match(active.log,/reviewing and retrying selected packages/);assert.ok(lib.snapshot().warnings.some(w=>w.includes('outcome is uncertain')));
  const reloaded=new Library(data);assert.equal(reloaded.jobs.find(j=>j.id===active.id).results[0].uncertain,true);assert.equal(reloaded.jobs.find(j=>j.id===queued.id).status,'canceled');assert.ok(reloaded.snapshot().warnings.some(w=>w.includes('outcome is uncertain')));
 });
+test('stopping a running job lets the active installer finish and skips the rest',async t=>{
+ const data=directory(t),calls=[];let release;const gate=new Promise(resolve=>{release=resolve;});const lib=new Library(data,()=>{},{run:async(_file,args)=>{calls.push(args[args.indexOf('--id')+1]);await gate;return {code:0,out:'',err:''};}});lib.scan=async()=>{};lib.checkPackages=async()=>{};
+ const job=lib.enqueue('install',[{id:'Vendor.First',source:'winget'},{id:'Vendor.Second',source:'winget'},{id:'Vendor.Third',source:'winget'}]);await new Promise(resolve=>setImmediate(resolve));
+ lib.stopJob(job.id);lib.stopJob(job.id);assert.equal(job.status,'running');release();await lib.queue;
+ assert.deepEqual(calls,['Vendor.First']);assert.equal(job.status,'canceled');
+ assert.deepEqual(job.results.map(r=>[r.id,r.success,!!r.notRun]),[['Vendor.First',true,false],['Vendor.Second',false,true],['Vendor.Third',false,true]]);
+ assert.throws(()=>lib.stopJob(job.id),/already finished/);
+});

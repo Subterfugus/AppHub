@@ -2,6 +2,18 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## Unreleased
+
+- Redesigned the interface around launching. Clicking an app or setting opens it; details moved to a **⋯** button, right-click, or Space. Enter opens the focused app, or the top result while typing in search. Entries with nothing to launch still open their details.
+- Replaced the large cards, statistics row and page banners with a dense icon grid and a compact list. Category filters are chips above the grid. Layout and sort choices are remembered on this PC.
+- Moved search into the title bar. Sync and local AI status are in the status bar. The details panel now overlays the library instead of resizing it.
+- Renamed sections to plain labels: Apps, Recent, Install apps, Export & restore, Settings. Removed slogans and repeated privacy statements; the privacy statement appears once, in Settings.
+- Added a light theme that follows the Windows app mode. Replaced character glyphs with drawn icons and raised the minimum text size to 12px.
+- Added themes (System, Graphite, Midnight, Ocean, Nord, Mocha, Forest, Light, Paper) and six accent colours under Settings → Appearance.
+- The interpretation model now reads every search of two or more characters unless it names an app exactly or by prefix. It chooses among up to 16 candidates by name from a shorter prompt. Changing the search cancels the pending answer without unloading the model, so the next search does not reload it.
+- Activity shows live progress for a running operation: the package it is on, the stage, and a reminder to look for a Windows permission prompt. Added **Stop after this package**, which lets the current installer finish and skips the rest; the close-window dialog offers the same choice. A status bar indicator shows queue progress from any page.
+- Validation: 72 unit tests, 13 hidden renderer checks and 20 full hidden Electron integration checks passed. Renderer and integration checks were updated for the new labels, for Space opening details, and to open details through the details button. A separate real-model check confirmed cancelling during load and mid-answer keeps the same model process.
+
 ## 1.3.0 — 2026-10-11
 
 - Added actionable local AI answers: open the recommended app or Windows settings page directly beneath its explanation, or choose View details. Entries without a launch target offer inspection.
