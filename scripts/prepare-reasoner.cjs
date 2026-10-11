@@ -1,0 +1,10 @@
+// Development setup only. Production inference never downloads models.
+const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const {spawnSync}=require('node:child_process');
+const root=path.resolve(__dirname,'..');
+async function hash(file){const h=crypto.createHash('sha256');for await(const chunk of fs.createReadStream(file))h.update(chunk);return h.digest('hex');}
+async function download(url,file,expected){fs.mkdirSync(path.dirname(file),{recursive:true});if(fs.existsSync(file)&&await hash(file)===expected)return;const part=file+'.partial';const r=spawnSync('curl.exe',['--fail','--location','--retry','3','--output',part,url],{stdio:'inherit',windowsHide:true});if(r.status!==0)throw new Error('Download failed: '+url);if(await hash(part)!==expected)throw new Error('Download checksum did not match: '+path.basename(file));fs.renameSync(part,file);}
+(async()=>{
+ const revision='bc640142c66e1fdd12af0bd68f40445458f3869b';await download(`https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/${revision}/Qwen3-4B-Q4_K_M.gguf`,path.join(root,'models/Qwen/Qwen3-4B-Q4_K_M.gguf'),'7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5');
+ const zip=path.join(root,'.qa/llama-runtime.zip');await download('https://github.com/ggml-org/llama.cpp/releases/download/b11552/llama-b11552-bin-win-cpu-x64.zip',zip,'c00741179811ff903b515eae28bdeef1f47af6e81c49920c4e68b62954e056d6');
+ const runtime=path.join(root,'runtime');fs.mkdirSync(runtime,{recursive:true});const command=`Expand-Archive -LiteralPath '${zip.replace(/'/g,"''")}' -DestinationPath '${runtime.replace(/'/g,"''")}' -Force`;const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{stdio:'inherit',windowsHide:true});if(r.status!==0)throw new Error('Runtime extraction failed');console.log('Pinned Qwen3 4B model and llama.cpp CPU runtime are ready.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

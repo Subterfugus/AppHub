@@ -1,0 +1,94 @@
+{
+  "name": "apphub",
+  "version": "1.2.0",
+  "description": "Your whole PC. One library.",
+  "author": "AppHub",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "prepare-model": "node scripts/prepare-model.mjs",
+    "build": "electron-builder --win --dir",
+    "dist": "electron-builder --win nsis-web"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.apphub.desktop",
+    "productName": "AppHub",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/apphub.ico",
+      "README.md",
+      "THIRD-PARTY.md",
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux{,/**/*}",
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin{,/**/*}",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64{,/**/*}",
+      "!node_modules/onnxruntime-web/dist/*.wasm"
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/*.dll"
+    ],
+    "extraResources": [
+      {
+        "from": "models",
+        "to": "models"
+      },
+      {
+        "from": "THIRD-PARTY.md",
+        "to": "THIRD-PARTY.md"
+      },
+      {
+        "from": "runtime",
+        "to": "runtime",
+        "filter": [
+          "*.dll",
+          "llama-server.exe",
+          "LICENSE*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "assets/apphub.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "AppHub",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
+    },
+    "compression": "store",
+    "nsisWeb": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "AppHub",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "appPackageUrl": "http://127.0.0.1:9/apphub-offline-package",
+      "artifactName": "AppHub Setup ${version}.${ext}",
+      "include": "assets/offline-installer.nsh"
+    }
+  }
+}
