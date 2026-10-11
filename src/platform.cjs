@@ -4,12 +4,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 function run(file,args=[],opts={}) {
   return new Promise((resolve,reject)=>{
-    const child=spawn(file,args,{windowsHide:true,shell:false,...opts}); let out='',err='';
+    const child=spawn(file,args,{windowsHide:true,shell:false,...opts}); let out='',err='',outputWarning;
+    const output=chunk=>{try{opts.onOutput?.(chunk);}catch(e){let message='Unknown callback error';try{message=String(e instanceof Error?e.message:e);}catch{}outputWarning='Output display failed: '+message;}};
     const timer=setTimeout(()=>{const error=new Error(file+' timed out');error.code='APPHUB_PROCESS_TIMEOUT';error.timedOut=true;child.kill();reject(error);},opts.timeout||120000);
-    child.stdout?.on('data',d=>{out+=d.toString();opts.onOutput?.(d.toString());});
-    child.stderr?.on('data',d=>{err+=d.toString();opts.onOutput?.(d.toString());});
+    child.stdout?.on('data',d=>{const chunk=d.toString();out+=chunk;output(chunk);});
+    child.stderr?.on('data',d=>{const chunk=d.toString();err+=chunk;output(chunk);});
     child.on('error',e=>{clearTimeout(timer);reject(e);});
-    child.on('close',code=>{clearTimeout(timer);resolve({code,out,err});});
+    child.on('close',code=>{clearTimeout(timer);resolve({code,out,err,...(outputWarning?{outputWarning}:{})});});
   });
 }
 function ps(script,opts={}) {return run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',Buffer.from("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $ProgressPreference='SilentlyContinue'; "+script,'utf16le').toString('base64')],opts);}

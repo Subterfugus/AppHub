@@ -2,12 +2,17 @@ const {app,BrowserWindow,ipcMain,shell,dialog,globalShortcut,nativeImage,Menu}=r
 const fs=require('node:fs');const path=require('node:path');
 const {Library,validatePackage,packageKey}=require('./library.cjs');const {LocalSearch}=require('./ai.cjs');const {rank,document}=require('./search.cjs');const {run,parseTable}=require('./platform.cjs');const {LocalReasoner,shouldInterpret}=require('./reasoner.cjs');const {ModelStore}=require('./models.cjs');
 app.setName('AppHub');app.setAppUserModelId('local.apphub.desktop');
-let win,library,ai,reasoner,models,modelProbe,modelsRoot,runtimeRoot,dataRoot,lastSearchQuery='',searchSequence=0,importPlan=null,loadingIcons=false;
+const {createWindowDelivery}=require('./window-delivery.cjs');
+const {createLogger,monitorMainErrors}=require('./diagnostics.cjs');
+let win,library,ai,reasoner,models,modelProbe,modelsRoot,runtimeRoot,dataRoot,lastSearchQuery='',searchSequence=0,importPlan=null,loadingIcons=false,iconTimer=null,shuttingDown=false;
+const logMain=createLogger(()=>dataRoot||app.getPath('userData'));monitorMainErrors(logMain);
+function reportMain(scope,error){try{logMain(scope,error);}catch{}}
+const windowDelivery=createWindowDelivery({getWindow:()=>win,isClosing:()=>shuttingDown,log:(scope,error)=>logMain(scope,error)});
 const single=app.requestSingleInstanceLock();if(!single)app.quit();
-app.on('second-instance',()=>{win?.show();win?.focus();});
-function broadcast(data){if(win&&!win.isDestroyed())win.webContents.send('apphub:change',data);if(data.lastScan&&!loadingIcons)setTimeout(loadIcons,200);}
-async function loadIcons(){if(loadingIcons||!library)return;loadingIcons=true;let changed=false;for(const a of library.state.apps){if(a.iconData)continue;const f=a.executable||(['exe','shortcut'].includes(a.launch?.type)?a.launch.target:null);if(!f||!fs.existsSync(f))continue;try{const icon=await app.getFileIcon(f,{size:'normal'});if(!icon.isEmpty()){a.iconData=icon.toDataURL();changed=true;}}catch{}}
-if(changed){library.save('library.json',library.state);if(win&&!win.isDestroyed())win.webContents.send('apphub:change',library.snapshot());}loadingIcons=false;}
+app.on('second-instance',()=>windowDelivery.focus());
+function broadcast(data){windowDelivery.send(data);if(data.lastScan&&!loadingIcons&&!iconTimer&&!shuttingDown&&windowDelivery.alive()){iconTimer=setTimeout(()=>{iconTimer=null;void loadIcons();},200);iconTimer.unref?.();}}
+async function loadIcons(){if(loadingIcons||!library||shuttingDown||!windowDelivery.alive())return;loadingIcons=true;try{let changed=false;for(const a of library.state.apps){if(shuttingDown||!windowDelivery.alive())break;if(a.iconData)continue;const f=a.executable||(['exe','shortcut'].includes(a.launch?.type)?a.launch.target:null);if(!f||!fs.existsSync(f))continue;try{const icon=await app.getFileIcon(f,{size:'normal'});if(!icon.isEmpty()){a.iconData=icon.toDataURL();changed=true;}}catch(error){reportMain('icon-read',error);}}
+if(changed&&!shuttingDown&&windowDelivery.alive()){library.save('library.json',library.state);windowDelivery.send(library.snapshot());}}catch(error){reportMain('icon-refresh',error);}finally{loadingIcons=false;}}
 function handle(name,fn){ipcMain.handle('apphub:'+name,async(e,...args)=>{if(e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw new Error('Untrusted caller');return fn(...args);});}
 function configureEngines(){ai=new LocalSearch({models:modelsRoot,data:dataRoot,config:models.config('embedding'),onStatus:s=>broadcast({ai:s})});reasoner=new LocalReasoner({models:modelsRoot,runtime:runtimeRoot,config:models.config('reasoning')||{name:'Interpretation disabled'},onStatus:s=>broadcast({reasoner:s})});broadcast({ai:ai.state,reasoner:reasoner.state,models:models.snapshot()});}
 function validateSearchModels(){if(models.validateActive()){ai.stop();reasoner.stop();configureEngines();models.validateActive();return models.warning;}}
@@ -68,8 +73,9 @@ async function start(){
  Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.webContents.session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));
  win.on('close',e=>{if(library.jobs.some(j=>['running','queued'].includes(j.status))){e.preventDefault();dialog.showMessageBox(win,{type:'info',title:'Package operations are still running',message:'Keep AppHub open until the package queue finishes.',detail:'You can minimize the window and follow progress in Activity.',buttons:['Keep running']});}});
  await win.loadFile(path.join(__dirname,'ui/index.html'));win.show();
- globalShortcut.register('CommandOrControl+Alt+Space',()=>{if(win.isMinimized())win.restore();win.show();win.focus();broadcast({focusSearch:true});});
+ globalShortcut.register('CommandOrControl+Alt+Space',()=>{if(windowDelivery.focus())broadcast({focusSearch:true});});
  library.scan().then(()=>{loadIcons();if(!library.state.packageChecked||Date.now()-new Date(library.state.packageChecked)>21600000)return library.checkPackages();}).catch(e=>broadcast({error:e.message}));
 }
-if(single)app.whenReady().then(start).catch(e=>{dialog.showErrorBox('AppHub could not start',e.stack||e.message);app.quit();});
-app.on('window-all-closed',()=>app.quit());app.on('will-quit',()=>{ai?.stop();reasoner?.stop();modelProbe?.stop();globalShortcut.unregisterAll();});
+if(single)app.whenReady().then(start).catch(e=>{reportMain('startup',e);dialog.showErrorBox('AppHub could not start',e.stack||e.message);app.quit();});
+function stopWindowDelivery(){shuttingDown=true;clearTimeout(iconTimer);iconTimer=null;}
+app.on('window-all-closed',()=>{stopWindowDelivery();app.quit();});app.on('will-quit',()=>{stopWindowDelivery();ai?.stop();reasoner?.stop();modelProbe?.stop();globalShortcut.unregisterAll();});

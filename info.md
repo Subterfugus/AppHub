@@ -2,6 +2,15 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.2.2 — 2026-10-11
+
+- Contained renderer delivery and focus failures during window shutdown, and coalesced icon refreshes. Icon loading now releases its gate after persistence failures and avoids late writes during shutdown.
+- Prevented output-display callback failures from escaping repeatedly for each process output chunk. Package operations still wait for the actual process result and retain the display warning in Activity.
+- Added bounded, local main-process error logs under the application data folder. Logging failures cannot create another application error; logs are not uploaded.
+- Made hidden Electron QA processes fail promptly on unexpected exceptions or rejections instead of opening native error dialogs. Two deliberate failure checks verify this behavior.
+- The originally reported dialog stack was unavailable. A repeated callback-exception path was reproduced and repaired; this does not establish the precise cause of those earlier dialogs.
+- Validation: 70 unit tests, 7 hidden renderer checks, 2 deliberate fatal-error checks, 20 full hidden Electron integration checks and 7 packaged inference/lifecycle checks passed. The packaged workers stopped after approximately 60.7 seconds of idle time. Packaged source matched all 16 application source files.
+
 ## 1.2.1 — 2026-10-11
 
 - Fixed incomplete WinGet listings silently dropping package inventory and export entries; unreadable identifiers now preserve the previous complete snapshot and report the problem.

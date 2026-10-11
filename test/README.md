@@ -35,6 +35,7 @@ The embedding fixture includes `config.json`, `special_tokens_map.json`, `tokeni
 
 ```powershell
 npm test
+node scripts/qa-main-errors.cjs
 node scripts/qa-ui-audit.cjs
 node scripts/qa-model-swaps.cjs
 node scripts/qa-electron.cjs
@@ -42,7 +43,7 @@ npm run build
 node scripts/qa-packaged-search.cjs
 ```
 
-`qa-model-swaps.cjs` exercises real alternative embedding and interpretation inference, model activation, separate vector caches, failed-model recovery, and restoration of bundled defaults. `qa-electron.cjs` exercises the application through Electron and its real interfaces. `qa-packaged-search.cjs` checks the built application and bundled CPU models, including process cleanup after the 60-second idle period. Allow several minutes for the inference and idle checks. Each runner must exit with status 0.
+`qa-main-errors.cjs` deliberately throws an exception and rejects a promise in isolated Electron processes; each must exit with failure without calling the native error dialog. The runner itself exits successfully when both checks pass. `qa-model-swaps.cjs` exercises real alternative embedding and interpretation inference, model activation, separate vector caches, failed-model recovery, and restoration of bundled defaults. `qa-electron.cjs` exercises the application through Electron and its real interfaces. `qa-packaged-search.cjs` checks the built application and bundled CPU models, including process cleanup after the 60-second idle period. Allow several minutes for the inference and idle checks. Each runner must exit with status 0.
 
 The packaged check defaults to `dist/win-unpacked`, relative to the source folder. To test a different extracted application folder:
 

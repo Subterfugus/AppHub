@@ -1,5 +1,6 @@
 // Automated software integration only: no desktop or browser computer-use APIs.
 const electron=require('electron');const {app,BrowserWindow,dialog,globalShortcut}=electron;
+require('./electron-qa-guard.cjs')(app,error=>finish(error));
 const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');const output=process.env.APPHUB_QA_OUTPUT||path.resolve(root,'qa-output');

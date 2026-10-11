@@ -1,5 +1,6 @@
 // Hidden Chromium renderer regression with synthetic APIs; no desktop interaction.
 const {app,BrowserWindow}=require('electron');
+require('./electron-qa-guard.cjs')(app);
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),scratch=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'apphub-ui-regression-'));
 fs.mkdirSync(scratch,{recursive:true});app.setPath('userData',path.join(scratch,'electron'));

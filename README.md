@@ -4,7 +4,7 @@ A Windows 11 desktop library for applications, software components, portable too
 
 ## Install
 
-Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.2.1.exe** and **apphub-1.2.1-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended for this CPU configuration.
+Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.2.2.exe** and **apphub-1.2.2-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended for this CPU configuration.
 
 ## Use
 
@@ -49,7 +49,7 @@ WinGet manages only packages it can match to a configured supported source. Othe
 
 ## Data and removal
 
-Persistent data lives under `%APPDATA%\AppHub`. Open it from AppHub settings. Malformed saved library/preferences/job files are recovered with an exact backup alongside them and a visible warning. Uninstalling the application preserves this folder. Your manifests are saved wherever you choose. AppHub has no telemetry or account system.
+Persistent data lives under `%APPDATA%\AppHub`. Open it from AppHub settings. Malformed saved library/preferences/job files are recovered with an exact backup alongside them and a visible warning. Unexpected main-process errors are recorded locally in `logs/main.log`, with one rotated backup. These logs can contain local paths and stay on this PC. Uninstalling the application preserves this folder. Your manifests are saved wherever you choose. AppHub has no telemetry or account system.
 
 ## Build from source
 
@@ -67,7 +67,7 @@ npm run dist
 
 The explicit Electron install command is useful on systems where npm install scripts are disabled. Model weights, native binaries, machine inventories, and private test reports are excluded from this repository. `prepare-model` downloads MiniLM and verifies inference; the pinned, checksum-verified `prepare-reasoner.cjs` script restores Qwen and the native runtime. The production search worker disables remote model loading.
 
-See [test/README.md](test/README.md) to prepare the optional model fixtures first. Automated integration: `node scripts/qa-electron.cjs`. Packaged search lifecycle: `node scripts/qa-packaged-search.cjs <path-to-dist-win-unpacked>`. These tests use isolated data and hidden application windows; they do not control the desktop. Test reports describe their scope, including which installer operations were simulated.
+See [test/README.md](test/README.md) to prepare the optional model fixtures first. Automated integration: `node scripts/qa-electron.cjs`. Renderer regressions: `node scripts/qa-ui-audit.cjs`. Fatal-error handling: `node scripts/qa-main-errors.cjs`. Packaged search lifecycle: `node scripts/qa-packaged-search.cjs <path-to-dist-win-unpacked>`. These tests use isolated data and hidden application windows; they do not control the desktop. Test reports describe their scope, including which installer operations were simulated.
 
 ## References and third-party software
 
