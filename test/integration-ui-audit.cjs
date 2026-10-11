@@ -24,4 +24,3 @@ app.whenReady().then(async()=>{try{
  await check('unavailable portable entry cannot launch',async()=>{await js(`document.querySelector('#search').value='';document.querySelector('#search').dispatchEvent(new Event('input'));audit.emit({items:[{id:'one',name:'Example',kind:'app',category:'Utilities',source:'Portable',launch:{type:'exe',target:'X:\\\\Example.exe'},unavailable:true,unavailableReason:'Test folder unavailable'}]});document.querySelector('.app-card').click();`);assert.equal(await js(`document.querySelector('#launch').disabled`),true);assert.match(await js(`document.querySelector('#details').textContent`),/Test folder unavailable/);});
  console.log(JSON.stringify({passed:true,checks,scope:'Hidden synthetic renderer; no real packages, models, dialogs, or desktop control.'}));app.exit(0);
  }catch(error){console.error(error);app.exit(1);}});
-
