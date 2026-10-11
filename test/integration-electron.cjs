@@ -1,11 +1,12 @@
 // Automated software integration only: no desktop or browser computer-use APIs.
-const electron=require('electron');const {app,BrowserWindow,dialog,globalShortcut}=electron;
+const electron=require('electron');const {app,BrowserWindow,dialog,globalShortcut,shell}=electron;
 require('./electron-qa-guard.cjs')(app,error=>finish(error));
 const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..');const output=process.env.APPHUB_QA_OUTPUT||path.resolve(root,'qa-output');
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'apphub-integration-'));
-const report={startedAt:new Date().toISOString(),dataDirectory:data,checks:[],rendererErrors:[],consoleWarnings:[],limitations:['No package installation, upgrades, or uninstallations performed.','Native file dialogs use QA file selections; system dialog appearance is not tested.','The application window stays hidden; desktop interactions are not used.']};
+const report={startedAt:new Date().toISOString(),dataDirectory:data,checks:[],rendererErrors:[],consoleWarnings:[],limitations:['No package installation, upgrades, or uninstallations performed.','Native file dialogs use QA file selections; system dialog appearance is not tested.','Settings launch is intercepted to verify the exact URI without opening Windows Settings.','The application window stays hidden; desktop interactions are not used.']};
+const openedURIs=[];shell.openExternal=async uri=>{openedURIs.push(uri);};
 fs.mkdirSync(output,{recursive:true});
 app.setPath('userData',path.join(data,'electron'));process.env.APPHUB_TEST_DATA=data;
 BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.focus=function(){};globalShortcut.register=()=>true;
@@ -48,11 +49,14 @@ app.whenReady().then(async()=>{
  await api('setAI',true);await js(`document.querySelector('[data-view="all"]').click()`);await delay(300);report.screenshotTitle=await js(`document.querySelector('h1').textContent`);assert.equal(report.screenshotTitle,'Your library');fs.writeFileSync(path.join(output,'AppHub-library.png'),(await win.webContents.capturePage()).toPNG());
  await js(`document.querySelector('#app-list .app-card').click()`);await delay(250);assert.equal(await js(`document.querySelector('#details').classList.contains('hidden')`),false);fs.writeFileSync(path.join(output,'AppHub-details.png'),(await win.webContents.capturePage()).toPNG());
  await check('Real renderer semantic search with bundled local model',async()=>{await js(`document.querySelector('#close-detail').click();document.querySelector('#search').value='edit pictures';document.querySelector('#search').dispatchEvent(new Event('input'));`);await waitFor(()=>js(`!document.querySelector('.loading-line')&&Boolean(document.querySelector('#app-list .app-card'))`),180000);const s=await api('snapshot');assert.equal(s.ai.status,'ready');assert(s.ai.pid);assert.equal(await js(`Boolean(document.querySelector('.notice.warn'))`),false);report.semanticUI={workerPid:s.ai.pid,names:await js(`Array.from(document.querySelectorAll('#app-list h3')).slice(0,8).map(e=>e.textContent)`)};await delay(300);fs.writeFileSync(path.join(output,'AppHub-search.png'),(await win.webContents.capturePage()).toPNG());return report.semanticUI;});
- await check('Two-model search renders a grounded explanation and clears stale answers',async()=>{
+ await check('Two-model answer opens its grounded settings target and clears stale actions',async()=>{
   await js(`document.querySelector('#search').value='Make my screen warmer at night';document.querySelector('#search').dispatchEvent(new Event('input'));`);
   await waitFor(()=>js(`!document.querySelector('.loading-line')&&Boolean(document.querySelector('.local-answer'))`),120000);
   const text=await js(`document.querySelector('.local-answer').textContent`);assert.match(text,/Night light/i);assert.equal(await js(`Boolean(document.querySelector('.notice.warn'))`),false);
   const s=await api('snapshot');assert(s.reasoner.pid);assert(s.reasoner.serverPid);report.reasoningUI={answer:text,pid:s.reasoner.pid,serverPid:s.reasoner.serverPid};
+  const action=await js(`(()=>{const b=document.querySelector('[data-answer-open]');return b?{id:b.dataset.answerOpen,label:b.textContent}:null})()`);assert.deepEqual(action,{id:'setting:nightlight',label:'Open Night light ↗'});assert.deepEqual(openedURIs,[],'Interpretation alone must not open anything');
+  await js(`document.querySelector('[data-answer-open]').focus();document.querySelector('[data-answer-open]').click()`);await waitFor(()=>openedURIs.length===1);assert.deepEqual(openedURIs,['ms-settings:nightlight']);await waitFor(async()=>Boolean((await api('snapshot')).items.find(a=>a.id==='setting:nightlight').lastLaunch));assert.equal((await api('snapshot')).jobs.length,0);report.reasoningUI.action={...action,uri:openedURIs[0],explicitClick:true};
+  win.setSize(980,640);await delay(350);const bounds=await js(`(()=>{const b=document.querySelector('[data-answer-open]').getBoundingClientRect();return {left:b.left,right:b.right,width:innerWidth,documentWidth:document.documentElement.scrollWidth}})()`);assert(bounds.left>=0&&bounds.right<=bounds.width&&bounds.documentWidth<=bounds.width);win.setSize(1380,900);await delay(350);
   fs.writeFileSync(path.join(output,'AppHub-local-answer.png'),(await win.webContents.capturePage()).toPNG());
   await js(`document.querySelector('#search').value='Calculator';document.querySelector('#search').dispatchEvent(new Event('input'));`);assert.equal(await js(`Boolean(document.querySelector('.local-answer'))`),false);await waitFor(()=>js(`!document.querySelector('.loading-line')&&Boolean(document.querySelector('#app-list .app-card'))`));
   assert.equal(await js(`Boolean(document.querySelector('.local-answer'))`),false);return report.reasoningUI;

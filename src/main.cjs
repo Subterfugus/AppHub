@@ -1,6 +1,6 @@
 const {app,BrowserWindow,ipcMain,shell,dialog,globalShortcut,nativeImage,Menu}=require('electron');
 const fs=require('node:fs');const path=require('node:path');
-const {Library,validatePackage,packageKey}=require('./library.cjs');const {LocalSearch}=require('./ai.cjs');const {rank,document}=require('./search.cjs');const {run,parseTable}=require('./platform.cjs');const {LocalReasoner,shouldInterpret}=require('./reasoner.cjs');const {ModelStore}=require('./models.cjs');
+const {Library,validatePackage,packageKey}=require('./library.cjs');const {LocalSearch}=require('./ai.cjs');const {rank,document}=require('./search.cjs');const {run,parseTable}=require('./platform.cjs');const {LocalReasoner,shouldInterpret,validateAnswer}=require('./reasoner.cjs');const {ModelStore}=require('./models.cjs');
 app.setName('AppHub');app.setAppUserModelId('local.apphub.desktop');
 const {createWindowDelivery}=require('./window-delivery.cjs');
 const {createLogger,monitorMainErrors}=require('./diagnostics.cjs');
@@ -33,16 +33,16 @@ async function start(){
   if(typeof query!=='string'||query.length>300)throw new Error('Search is too long');
   const seq=++searchSequence;if(query!==lastSearchQuery){lastSearchQuery=query;if(reasoner.pending.size)reasoner.stop();if(ai.pending.size)ai.stop();}
   const items=library.all().filter(a=>!a.hidden);if(!query.trim())return {items,mode:'browse',ai:ai.state,reasoner:reasoner.state};
-  let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,reasoningWarning=null,reasoning=false;
+  let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,recommendations=[],reasoningWarning=null,reasoning=false;
   if(semantic&&library.prefs.aiEnabled&&!models.busy)try{warning=validateSearchModels()||warning;scores=await ai.search(query,items.map(a=>({id:a.id,text:document(a)})));}catch(e){warning=e.message;}
   let ranked=rank(query,items,scores);
   if(seq===searchSequence&&semantic&&library.prefs.aiEnabled&&!models.busy&&models.active.reasoning!=='off'&&ranked.length&&shouldInterpret(query,ranked)){
    broadcast({searchPreview:{query,items:ranked}});
-   try{warning=validateSearchModels()||warning;const interpreted=await reasoner.interpret(query,ranked.slice(0,10).map(a=>({...a,searchText:document(a)})));if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
+   try{warning=validateSearchModels()||warning;const candidates=ranked.slice(0,10).map(a=>({...a,searchText:document(a)}));const interpreted=validateAnswer(await reasoner.interpret(query,candidates),candidates);if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;recommendations=interpreted.matches.map(m=>m.id);reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
    catch(e){if(seq===searchSequence)reasoningWarning=e.message;}
   }
   if(seq===searchSequence&&ai.worker&&!ai.pending.size)ai.arm();
-  return {items:ranked,mode:Object.keys(scores).length?'semantic':'keyword',warning,answer,reasoning,reasoningWarning,ai:ai.state,reasoner:reasoner.state};
+  return {items:ranked,mode:Object.keys(scores).length?'semantic':'keyword',warning,answer,recommendations,reasoning,reasoningWarning,ai:ai.state,reasoner:reasoner.state};
  });
  handle('cancelSearch',()=>{searchSequence++;if(ai.pending.size)ai.stop();if(reasoner.pending.size)reasoner.stop();return {ok:true};});
  handle('addModel',async role=>{if(!['embedding','reasoning'].includes(role))throw new Error('Unknown model role');if(models.busy)throw new Error('Wait for the model check to finish');const result=await dialog.showOpenDialog(win,{title:role==='reasoning'?'Choose a local GGUF chat model':'Choose a local ONNX embedding model folder',...(role==='reasoning'?{filters:[{name:'GGUF model',extensions:['gguf']}]}:{}),properties:[role==='reasoning'?'openFile':'openDirectory']});if(result.canceled)return null;return models.add(role,result.filePaths[0]);});

@@ -2,6 +2,14 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.3.0 — 2026-10-11
+
+- Added actionable local AI answers: open the recommended app or Windows settings page directly beneath its explanation, or choose View details. Entries without a launch target offer inspection.
+- Grounded actions in validated recommendation IDs from the current library, using the existing launch path. Model text cannot supply a command or URL. Search alone does not launch anything or change a Windows setting.
+- Cleared actions on new searches, ignored late answers, removed actions for hidden or missing entries, and explained unavailable folders. Pending opens reject duplicate clicks while retaining keyboard focus; launch failures remain visible and can be retried.
+- Added hidden renderer regressions for settings/app actions, focus, pending clicks, errors, unavailable entries and stale answers. Full integration checks verify a real local model's Night light recommendation resolves to its exact settings shortcut, with native navigation intercepted for the test.
+- Validation: 70 unit tests, 13 hidden renderer checks, 2 deliberate fatal-error checks, 20 full hidden Electron integration checks and 7 packaged inference/lifecycle checks passed. Packaged model processes stopped after approximately 60.7 seconds idle. The final focus adjustment was rechecked with the renderer suite.
+
 ## 1.2.2 — 2026-10-11
 
 - Contained renderer delivery and focus failures during window shutdown, and coalesced icon refreshes. Icon loading now releases its gate after persistence failures and avoids late writes during shutdown.
