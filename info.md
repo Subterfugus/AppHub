@@ -2,7 +2,7 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
-## Unreleased
+## 1.4.0 — 2026-10-12
 
 - Redesigned the interface around launching. Clicking an app or setting opens it; details moved to a **⋯** button, right-click, or Space. Enter opens the focused app, or the top result while typing in search. Entries with nothing to launch still open their details.
 - Replaced the large cards, statistics row and page banners with a dense icon grid and a compact list. Category filters are chips above the grid. Layout and sort choices are remembered on this PC.
