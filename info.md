@@ -2,6 +2,13 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.5.2 — 2026-10-12
+
+- The default colour is now a warm pastel peach instead of bright lime, and the Graphite theme uses warm greys to match.
+- All accent colours are pastels: Peach, Butter, Rose, Violet, Blue, Teal and Lime. Orange is replaced by Peach.
+- The logo, window icon and installer icon are recoloured to peach.
+- Validation: 77 unit tests, 16 hidden renderer checks and 21 full hidden Electron integration checks passed.
+
 ## 1.5.1 — 2026-10-12
 
 - New logo: an A drawn as a launch chevron over a hub dot. It replaces the letter tile in the title bar, the window and taskbar icon, and the installer. `assets/apphub.svg` is the source; `scripts/make-icon.cjs` renders the PNG and multi-size ICO from it.

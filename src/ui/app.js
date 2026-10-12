@@ -35,7 +35,7 @@ const store = (key, value) => { try { localStorage.setItem('apphub.' + key, valu
 // Each theme lists the preview colours shown in Settings: background, surface, text.
 const THEMES = [
   {id: 'system', name: 'System'},
-  {id: 'graphite', name: 'Graphite', colors: ['#17181b', '#2a2c31', '#f1f2f4']},
+  {id: 'graphite', name: 'Graphite', colors: ['#191817', '#2e2c2a', '#f3f1ee']},
   {id: 'midnight', name: 'Midnight', colors: ['#000000', '#1c1c1e', '#f2f2f3']},
   {id: 'ocean', name: 'Ocean', colors: ['#0b0e14', '#1f2633', '#eef1f6']},
   {id: 'nord', name: 'Nord', colors: ['#2e3440', '#434c5e', '#eceff4']},
@@ -44,13 +44,13 @@ const THEMES = [
   {id: 'light', name: 'Light', colors: ['#ffffff', '#ebebee', '#1b1c1f']},
   {id: 'paper', name: 'Paper', colors: ['#fbf8f1', '#e9e2d3', '#2b2620']}
 ];
-const ACCENTS = [['lime', 'Lime', '#c5f279'], ['blue', 'Blue', '#6aa9ff'], ['violet', 'Violet', '#b79cff'], ['rose', 'Rose', '#ff8fa3'], ['orange', 'Orange', '#ffb05c'], ['teal', 'Teal', '#5fd6c4']];
+const ACCENTS = [['peach', 'Peach', '#f3c4a3'], ['butter', 'Butter', '#f1dc9e'], ['rose', 'Rose', '#f2b5c0'], ['violet', 'Violet', '#c9b8f3'], ['blue', 'Blue', '#abc8f5'], ['teal', 'Teal', '#a5dccf'], ['lime', 'Lime', '#d2e7a4']];
 let theme = THEMES.some(t => t.id === stored('theme')) ? stored('theme') : 'system';
-let accent = ACCENTS.some(([id]) => id === stored('accent')) ? stored('accent') : 'lime';
+let accent = ACCENTS.some(([id]) => id === stored('accent')) ? stored('accent') : 'peach';
 function applyAppearance() {
   const root = document.documentElement;
   if (theme === 'system') root.removeAttribute('data-theme'); else root.dataset.theme = theme;
-  if (accent === 'lime') root.removeAttribute('data-accent'); else root.dataset.accent = accent;
+  if (accent === 'peach') root.removeAttribute('data-accent'); else root.dataset.accent = accent;
 }
 applyAppearance();
 

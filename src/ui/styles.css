@@ -2,19 +2,19 @@
    Three radii, two shadows and one easing are used everywhere. */
 :root {
   color-scheme: dark;
-  --bg: #17181b;
-  --chrome: #1d1e22;
-  --surface: #202226;
-  --surface-2: #2a2c31;
+  --bg: #191817;
+  --chrome: #1f1e1c;
+  --surface: #242321;
+  --surface-2: #2e2c2a;
   --hover: #ffffff0d;
   --pressed: #ffffff17;
   --line: #ffffff14;
   --line-strong: #ffffff2b;
-  --text: #f1f2f4;
-  --text-2: #babec6;
-  --text-3: #8e939d;
-  --accent: #c5f279;
-  --accent-ink: #1c2a10;
+  --text: #f3f1ee;
+  --text-2: #c3beb7;
+  --text-3: #979189;
+  --accent: #f3c4a3;
+  --accent-ink: #3b2213;
   --accent-fg: var(--accent);
   --accent-soft: color-mix(in srgb, var(--accent-fg) 12%, transparent);
   --fav: #f2c14e;
@@ -111,11 +111,12 @@
     --shadow-2: 0 18px 50px -12px #0004;
   }
 }
-:root[data-accent=blue] { --accent: #6aa9ff; --accent-ink: #06203f; }
-:root[data-accent=violet] { --accent: #b79cff; --accent-ink: #1f1147; }
-:root[data-accent=rose] { --accent: #ff8fa3; --accent-ink: #47101c; }
-:root[data-accent=orange] { --accent: #ffb05c; --accent-ink: #3d2203; }
-:root[data-accent=teal] { --accent: #5fd6c4; --accent-ink: #06312b; }
+:root[data-accent=butter] { --accent: #f1dc9e; --accent-ink: #3a2e0a; }
+:root[data-accent=rose] { --accent: #f2b5c0; --accent-ink: #4a1522; }
+:root[data-accent=violet] { --accent: #c9b8f3; --accent-ink: #251650; }
+:root[data-accent=blue] { --accent: #abc8f5; --accent-ink: #0d2444; }
+:root[data-accent=teal] { --accent: #a5dccf; --accent-ink: #0a3530; }
+:root[data-accent=lime] { --accent: #d2e7a4; --accent-ink: #223010; }
 
 /* Base */
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
@@ -369,7 +370,7 @@ label.check { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; 
 .swatch.active { color: var(--text); font-weight: 600; }
 .swatch-preview { position: relative; display: flex; align-items: flex-end; width: 64px; height: 42px; padding: 4px 6px; border-radius: var(--r-1); border: 1px solid var(--line-strong); font-size: 12px; font-weight: 600; overflow: hidden; }
 .swatch-preview i { position: absolute; top: 6px; right: 6px; width: 22px; height: 13px; border-radius: 3px; }
-.swatch-preview.system { background: linear-gradient(105deg, #17181b 50%, #ffffff 50%); color: #f1f2f4; }
+.swatch-preview.system { background: linear-gradient(105deg, #191817 50%, #ffffff 50%); color: #f3f1ee; }
 .swatch-preview.system i { background: #ebebee; }
 .swatch.active .swatch-preview { outline: 2px solid var(--accent-fg); outline-offset: 2px; }
 .accents { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--text-2); }
