@@ -2,6 +2,17 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.5.1 — 2026-10-12
+
+- New logo: an A drawn as a launch chevron over a hub dot. It replaces the letter tile in the title bar, the window and taskbar icon, and the installer. `assets/apphub.svg` is the source; `scripts/make-icon.cjs` renders the PNG and multi-size ICO from it.
+- Rebuilt the stylesheet as one system: three corner radii, two shadows, one easing curve and a single type scale, replacing the layered overrides from 1.5.0.
+- Toned down decoration: removed the background glow, gradient headline, glowing buttons, pulsing dots, bouncing and rotating hover effects and the staggered tile entrance. Pages fade in once; hover changes colour only.
+- Apps without an icon now show their initial on a muted plate in their own hue instead of a bright gradient. Fixed per-app hues not reaching icon plates.
+- Chat replies are plain text beside a small AppHub mark, with suggested apps in one bordered list. The empty chat shows four example questions as a list. Removed the example chips from Home.
+- The category chips have their own line in Apps, above the count and the sort and layout controls, so they no longer wrap around them.
+- Settings: theme swatches fit one row, status labels are capitalised, and the model description matches what the chat model now does.
+- Validation: 77 unit tests, 16 hidden renderer checks and 21 full hidden Electron integration checks passed.
+
 ## 1.5.0 — 2026-10-12
 
 - Added **Chat**: ask about your apps and this PC. The local model answers from a read-only snapshot of system information (memory, storage, processor load, graphics, battery, uptime, startup programs, the programs using the most memory and CPU), available updates and the closest library entries. It cannot see files and cannot run anything. Replies stream as they are written and can be stopped.

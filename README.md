@@ -4,7 +4,7 @@ A Windows 11 desktop library for applications, software components, portable too
 
 ## Install
 
-Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.5.0.exe** and **apphub-1.5.0-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
+Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.5.1.exe** and **apphub-1.5.1-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
 
 ## Use
 

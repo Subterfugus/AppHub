@@ -23,7 +23,7 @@ const ICONS = {
   chat: '<path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.3A7.5 7.5 0 1 1 20 12.5z"/>',
   send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
-  spark: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z"/>',
+  mark: '<path d="M6.8 16.1 12 6.9l5.2 9.2" stroke-width="2.6"/><circle cx="12" cy="15.2" r="1.8" fill="currentColor" stroke="none"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>'
 };
 const svg = name => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -82,7 +82,7 @@ const modelName = role => role === 'reasoning' && state.models?.active?.reasonin
   ? 'Interpretation off'
   : String((role === 'embedding' ? state.ai : state.reasoner)?.model || state.models?.profiles?.find(p => p.id === state.models?.active?.[role])?.name || (role === 'embedding' ? 'Local retrieval' : 'Local interpretation'));
 const modelDescription = () => `${modelName('embedding')} finds apps and Windows settings by meaning. `
-  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} interprets longer requests and explains the best match.`)
+  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} reads each search, lists the entries that fit, and answers in Chat.`)
   + ' Names, partial names and typos work either way. Queries and your software list stay on this PC.';
 
 function toast(text, error = false) {
@@ -325,7 +325,7 @@ function libraryToolbar(items) {
   const noun = view === 'settings' ? 'setting' : 'item';
   const hiddenToggle = showHidden || state.items.some(a => a.hidden) ? `<label class="filter-label"><input id="show-hidden" type="checkbox" ${showHidden ? 'checked' : ''}>Show hidden</label>` : '';
   const sorter = view === 'recent' ? '' : `<select id="sort" aria-label="Sort"><option value="name" ${sort === 'name' ? 'selected' : ''}>Name</option><option value="recent" ${sort === 'recent' ? 'selected' : ''}>Recently opened</option><option value="source" ${sort === 'source' ? 'selected' : ''}>Source</option></select>`;
-  return `<div class="section-controls">${chips || `<span class="meta">${plural(items.length, noun)}</span><span class="spacer"></span>`}${hiddenToggle}${sorter}<div class="view-toggle"><button id="grid-view" class="${mode === 'grid' ? 'active' : ''}" aria-label="Grid view" title="Grid">${svg('grid')}</button><button id="list-view" class="${mode === 'list' ? 'active' : ''}" aria-label="List view" title="List">${svg('list')}</button></div></div>`;
+  return `<div class="section-controls">${chips}<span class="meta">${plural(items.length, view === 'all' ? 'app' : noun)}</span><span class="spacer"></span>${hiddenToggle}${sorter}<div class="view-toggle"><button id="grid-view" class="${mode === 'grid' ? 'active' : ''}" aria-label="Grid view" title="Grid">${svg('grid')}</button><button id="list-view" class="${mode === 'list' ? 'active' : ''}" aria-label="List view" title="List">${svg('list')}</button></div></div>`;
 }
 
 function libraryEmpty() {
@@ -580,7 +580,7 @@ function renderActivityContent() {
   const outcome = r => `${esc(r.id)} · ${r.uncertain ? 'Outcome uncertain' : r.notRun ? 'Not run' : r.success ? 'Succeeded' : 'Failed'}${r.code !== undefined ? ' · Exit code ' + r.code : ''}`;
   $('#body').innerHTML = state.jobs.length
     ? state.jobs.map(j => `<article class="activity-card" data-job="${esc(j.id)}"><div class="activity-header"><span class="activity-icon ${tone(j.status)}">${svg(j.status === 'completed' ? 'check' : tone(j.status) === 'danger' ? 'alert' : 'download')}</span>`
-      + `<div class="plan-entry"><strong>${j.action === 'upgrade' ? 'Update' : 'Install'} · ${plural(j.packages.length, 'package')}</strong><small>${new Date(j.created).toLocaleString()}${summary(j) ? ' · ' + summary(j) : ''}</small><small class="package-ids">${esc(j.packages.map(p => p.id).join(', '))}</small></div><span class="pill ${tone(j.status)}">${esc(j.status)}</span></div>`
+      + `<div class="plan-entry"><strong>${j.action === 'upgrade' ? 'Update' : 'Install'} · ${plural(j.packages.length, 'package')}</strong><small>${new Date(j.created).toLocaleString()}${summary(j) ? ' · ' + summary(j) : ''}</small><small class="package-ids">${esc(j.packages.map(p => p.id).join(', '))}</small></div><span class="pill ${tone(j.status)}">${esc(statusLabel(j.status))}</span></div>`
       + progress(j)
       + (j.status === 'queued' ? `<button class="text-button" data-cancel-job="${esc(j.id)}">Cancel</button>` : '')
       + `<details><summary>Installer output</summary><pre>${esc(j.log || 'Waiting in queue…')}</pre>${(j.results || []).map(r => `<small>${outcome(r)}</small><br>`).join('')}</details></article>`).join('')
@@ -594,9 +594,10 @@ function renderActivityContent() {
   $('#activity-updates')?.addEventListener('click', () => navigate('updates'));
 }
 
+const statusLabel = status => { const s = String(status || 'sleeping'); return s[0].toUpperCase() + s.slice(1); };
 function runtimeRow(role) {
   const runtime = (role === 'embedding' ? state.ai : state.reasoner) || {};
-  return `<div class="setting-row"><div><strong id="${role}-title">${esc(modelName(role))}</strong><small id="${role}-runtime">${esc(runtime.message || 'Sleeping')}${runtime.pid ? ' · Process ' + runtime.pid : ''}</small></div><span id="${role}-runtime-status" class="pill">${esc(runtime.status || 'sleeping')}</span></div>`;
+  return `<div class="setting-row"><div><strong id="${role}-title">${esc(modelName(role))}</strong><small id="${role}-runtime">${esc(runtime.message || 'Sleeping')}${runtime.pid ? ' · Process ' + runtime.pid : ''}</small></div><span id="${role}-runtime-status" class="pill">${esc(statusLabel(runtime.status))}</span></div>`;
 }
 function renderPreferences() {
   const folders = state.prefs.folders || [];
@@ -748,12 +749,11 @@ function updateModelRuntime() {
     const title = $(`#${role}-title`), detail = $(`#${role}-runtime`), status = $(`#${role}-runtime-status`);
     if (title) title.textContent = modelName(role);
     if (detail) detail.textContent = (runtime.message || 'Sleeping') + (runtime.pid ? ' · Process ' + runtime.pid : '');
-    if (status) status.textContent = runtime.status || 'sleeping';
+    if (status) status.textContent = statusLabel(runtime.status);
   }
 }
 
 // Home: ask box, live system gauges, favorites and recently opened apps.
-const ASK_EXAMPLES = ['What is using the most memory?', 'Which apps have updates?', 'How much disk space is free?', 'What starts with Windows?'];
 function refreshSystem() {
   if (systemLoading || !api.system) return;
   systemLoading = true;
@@ -796,14 +796,13 @@ function renderHome() {
     + (items.length ? `<div class="grid card-host">${items.map(a => card(a, 'grid')).join('')}</div>` : `<p class="section-empty">${emptyText}</p>`) + '</section>';
   const aiOff = state.prefs.aiEnabled === false || state.models?.active?.reasoning === 'off';
   $('#body').innerHTML = [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('')
-    + `<section class="hero"><h1>${new Date().toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'})}</h1>`
-    + `<form id="ask-form" class="ask"><span class="ask-icon">${svg('spark')}</span><input id="ask-input" maxlength="2000" autocomplete="off" placeholder="${aiOff ? 'Chat is off — turn on local AI in Settings' : 'Ask about your apps or this PC'}" aria-label="Ask the local assistant" value="${esc(askDraft)}" ${aiOff ? 'disabled' : ''}><button class="send" aria-label="Ask" ${aiOff ? 'disabled' : ''}>${svg('arrow')}</button></form>`
-    + (aiOff ? '' : `<div class="chips ask-chips">${ASK_EXAMPLES.map(q => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`) + '</section>'
+    + `<div class="home"><h1>${new Date().toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'})}</h1>`
+    + `<form id="ask-form" class="ask">${svg('chat')}<input id="ask-input" maxlength="2000" autocomplete="off" placeholder="${aiOff ? 'Chat is off — turn on local AI in Settings' : 'Ask about your apps or this PC'}" aria-label="Ask the local assistant" value="${esc(askDraft)}" ${aiOff ? 'disabled' : ''}><button class="send" aria-label="Ask" ${aiOff ? 'disabled' : ''}>${svg('arrow')}</button></form>`
     + `<section class="stats"><div id="gauges" class="gauge-row">${gauges()}</div>`
     + `<button class="stat count-stat${updates.length ? ' attention' : ''}" data-view="updates"><strong>${updates.length}</strong><span class="stat-text"><small>Updates</small><small>${updates.length ? 'Review and install' : state.packageChecked ? 'All up to date' : 'Not checked yet'}</small></span></button>`
     + `<button class="stat count-stat" data-view="all"><strong>${apps.length}</strong><span class="stat-text"><small>Apps</small><small>${state.scanning ? 'Syncing…' : 'Browse the library'}</small></span></button></section>`
     + section('Favorites', favorites, 'favorites', 'Star an app to pin it here. Hover a tile and click the star.')
-    + section('Recently opened', recent, 'recent', 'Apps you open from AppHub show up here.');
+    + section('Recently opened', recent, 'recent', 'Apps you open from AppHub show up here.') + '</div>';
   document.querySelectorAll('#body .card-host').forEach(bindCards);
   $('#ask-input').oninput = e => { askDraft = e.target.value; };
   $('#ask-form').onsubmit = e => { e.preventDefault(); const text = askDraft; askDraft = ''; sendChat(text); };
@@ -818,7 +817,7 @@ function renderHome() {
 }
 
 // Chat: the model answers from the library and system snapshot; actions are buttons under its reply.
-const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Which apps have updates?', 'What do I have for editing video?', 'How full is my disk?', 'What starts with Windows?', 'How long has this PC been running?'];
+const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Which apps have updates?', 'What do I have for editing video?', 'What starts with Windows?'];
 function chatSuggestions(m) {
   const entries = (m.suggestions || []).map(s => item(s.id)).filter(a => a && !a.hidden);
   if (!entries.length) return '';
@@ -832,15 +831,15 @@ function chatSuggestions(m) {
 }
 function chatMessage(m) {
   if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
-  return `<div class="msg bot"><span class="avatar">${svg('spark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${chatSuggestions(m)}</div></div>`;
+  return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${chatSuggestions(m)}</div></div>`;
 }
 function renderChat() {
   const log = $('#chat-log'), pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   const off = state.prefs.aiEnabled === false ? 'Local AI is turned off.' : state.models?.active?.reasoning === 'off' ? 'No chat model is selected.' : '';
-  const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('spark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : '<span class="typing"><i></i><i></i><i></i></span>'}</div></div>` : '';
-  const empty = `<div class="chat-empty"><span class="avatar large">${svg('spark')}</span><h2>Ask about this PC</h2>`
-    + '<p>Chat runs on this PC. It can see your app library, available updates and live system information such as memory, storage, startup apps and running programs. It cannot see your files, and it cannot change anything: it answers, and offers buttons you can click.</p>'
-    + (off ? `<div class="notice warn">${off} <button class="text-button" data-view="preferences">Open Settings</button></div>` : `<div class="chips">${CHAT_EXAMPLES.map(q => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`) + '</div>';
+  const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('mark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : '<span class="typing">Thinking…</span>'}</div></div>` : '';
+  const empty = '<div class="chat-empty"><h2>Ask about this PC</h2>'
+    + '<p>Chat runs on this PC and reads your app library, available updates and live system information. It cannot see your files or change anything; it answers and offers buttons.</p>'
+    + (off ? `<div class="notice warn">${off} <button class="text-button" data-view="preferences">Open Settings</button></div>` : `<div class="examples">${CHAT_EXAMPLES.map(q => `<button class="example" data-ask="${esc(q)}">${esc(q)}${svg('arrow')}</button>`).join('')}</div>`) + '</div>';
   $('#body').innerHTML = `<div class="chat"><div class="chat-log" id="chat-log">${chat.length || chatBusy ? chat.map(chatMessage).join('') + pending : empty}</div>`
     + `<form id="chat-form" class="composer"><textarea id="chat-input" rows="1" maxlength="2000" placeholder="Ask about your apps or this PC" aria-label="Message" ${off ? 'disabled' : ''}>${esc(chatDraft)}</textarea>`
     + (chatBusy ? `<button type="button" id="chat-stop" class="send stop" aria-label="Stop" title="Stop">${svg('stop')}</button>` : `<button class="send" aria-label="Send" title="Send" ${off ? 'disabled' : ''}>${svg('send')}</button>`) + '</form>'
