@@ -90,3 +90,11 @@ test('job history limits never evict pending operations and failed exit codes re
 test('synthetic inventory preserves runtime architectures without using installer icons as launchers',()=>{
  const raw={registry:[{name:'Example Runtime 1.0 (x64)',version:'1.0',registry:'fixture:x64',icon:'C:\\Fixtures\\setup.exe'},{name:'Example Runtime 1.0 (x86)',version:'1.0',registry:'fixture:x86',icon:'C:\\Fixtures\\setup.exe'}],start:[],links:[],appx:[]};const apps=mergeInventory(raw);assert.equal(apps.length,2);assert.equal(apps.some(a=>a.launch?.type==='exe'),false);
 });
+
+test('uninstall is queued only for installed packages and runs WinGet without install-only flags',async t=>{
+ const calls=[];const lib=temporaryLibrary(t,{run:async(file,args)=>{calls.push([file,...args]);return {code:0,out:'',err:''};},discover:async()=>({registry:[]}),steam:()=>[]});
+ lib.state.apps=[{id:'pkg:tool',name:'Tool',kind:'app',packageId:'Vendor.Tool',packageSource:'winget',version:'1.0'}];
+ assert.throws(()=>lib.enqueue('uninstall',[{id:'Vendor.Missing',source:'winget'}]),/Sync the library/);assert.throws(()=>lib.enqueue('remove',[{id:'Vendor.Tool',source:'winget'}]),/Invalid package operation/);
+ const job=lib.enqueue('uninstall',[{id:'Vendor.Tool',source:'winget'}]);assert.equal(job.action,'uninstall');await lib.queue;
+ const command=calls.find(c=>c[1]==='uninstall');assert.deepEqual(command.slice(0,7),['winget.exe','uninstall','--id','Vendor.Tool','--exact','--source','winget']);assert(!command.includes('--accept-package-agreements'));assert(!command.includes('--no-upgrade'));assert(command.includes('--silent'));assert.equal(job.results[0].success,true);
+});

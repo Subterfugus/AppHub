@@ -2,6 +2,19 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.6.0 — 2026-10-12
+
+- Chat looks things up for the question it is asked. Eleven read-only lookups are available: running programs, services, folder sizes, network status, recent crashes and errors, Windows Update history, battery health, installed app sizes, startup entries, hardware details and the WinGet catalog. Keywords choose them; the model chooses when none match. The reply lists what was checked.
+- Folder sizes come from robocopy in list-only mode and report totals per folder. File names and contents are never read.
+- Chat can offer more actions, always as buttons with a confirmation: Uninstall (WinGet, through the Activity queue), End a running program, Disable a startup entry, Install from the catalog, and Review all updates. Buttons appear only for things the reply names, and the main process checks each request again against the live system.
+- Windows components, security software and AppHub itself cannot be ended. Startup entries are switched with the same StartupApproved flag Task Manager uses, for the current user only.
+- Uninstall is a new package operation and is also available from an app's details panel.
+- Optional larger chat model: Qwen3 8B can be downloaded from Settings, with resume and a pinned SHA256, and is used for Chat only. Search keeps the bundled 4B model, because the larger one roughly doubles the wait.
+- The default context size is now 8192 tokens so lookups fit; a saved 4096 setting is raised once.
+- Replies that start repeating themselves are cut off instead of running to the token limit.
+- Eight new themes: Dusk, Rosewood, Slate, Espresso, Sand, Sage, Blossom and Sky.
+- Validation: 93 unit tests, 17 hidden renderer checks and 22 full hidden Electron integration checks passed. Ending a program and disabling a startup entry were validated through their refusal paths and unit tests, not by changing a real program or entry.
+
 ## 1.5.2 — 2026-10-12
 
 - The default colour is now a warm pastel peach instead of bright lime, and the Graphite theme uses warm greys to match.

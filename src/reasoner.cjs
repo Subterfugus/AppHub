@@ -21,6 +21,8 @@ class LocalReasoner{
  cancel(reason='Search changed',kind='search'){const mine=[...this.pending].filter(([,p])=>(p.kind||'search')===kind);if(!mine.length)return;for(const [id,p] of mine){clearTimeout(p.timer);this.pending.delete(id);p.reject(new Error(reason));}if(this.worker?.connected){try{this.worker.send({cancel:kind});}catch{}}if(!this.pending.size)this.arm();}
  // A chat turn: the reply streams through onDelta and resolves as {reply,suggest}, where suggest holds labels from the supplied list.
  chat(chat,onDelta=()=>{}){clearTimeout(this.timer);this.start();this.publish({unloadAt:null});return new Promise((resolve,reject)=>{const id=++this.counter;const timer=setTimeout(()=>this.stop('Local chat timed out'),180000);this.pending.set(id,{resolve,reject,timer,kind:'chat',onDelta});this.worker.send({id,chat});});}
+ // Asks which lookups a chat question needs; resolves as {lookups,search}.
+ plan(plan){clearTimeout(this.timer);this.start();this.publish({unloadAt:null});return new Promise((resolve,reject)=>{const id=++this.counter;const timer=setTimeout(()=>this.stop('Local chat timed out'),120000);this.pending.set(id,{resolve,reject,timer,kind:'chat'});this.worker.send({id,plan});});}
  stop(reason='Local interpretation stopped'){clearTimeout(this.timer);const w=this.worker;this.worker=null;if(w?.connected){try{w.send({shutdown:true},()=>{});w.disconnect();}catch{w.kill();}}for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error(reason));}this.pending.clear();this.publish({status:'sleeping',message:this.state.model+' asleep · memory released',pid:null,serverPid:null,device:null,unloadAt:null});}
 }
 module.exports={LocalReasoner,shouldInterpret,validateAnswer};

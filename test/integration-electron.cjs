@@ -76,6 +76,11 @@ await check('Minimum window size keeps application details accessible',async()=>
   await js(`document.querySelector('#local-models').scrollIntoView({block:'start'});`);await delay(300);fs.writeFileSync(path.join(output,'AppHub-models.png'),(await win.webContents.capturePage()).toPNG());
   fileToOpen=undefined;assert.equal(await api('addModel','reasoning'),null);return {embedding:ep.name,reasoningRegistered:rp.name,activeEmbedding:active.models.active.embedding};
  });
+ await check('Chat runs a read-only lookup for the question and refuses unsafe actions through real IPC',async()=>{
+  const r=await api('chat',[{role:'user',content:'Which programs start with Windows on this PC?'}]);assert.deepEqual(r.looked,['startup programs']);assert(r.reply.length>10);assert(r.suggestions.every(s=>['entry','startup','process','package','updates'].includes(s.type)));
+  await assert.rejects(api('endProcess','svchost'),/does not end this program/);await assert.rejects(api('endProcess',"x'; calc"),/does not end this program/);await assert.rejects(api('endProcess','apphub-no-such-process'),/is not running/);
+  await assert.rejects(api('setStartup','user|run|apphub-no-such-entry',false),/no longer exists/);await assert.rejects(api('uninstall','missing'),/Only apps installed through WinGet/);await assert.rejects(api('openSettings','display'),/Unknown settings page/);await assert.rejects(api('downloadModel','missing'),/Unknown model/);
+  const models=(await api('snapshot')).models;assert.equal(models.downloads[0].id,'qwen3-8b');assert.equal(models.downloading,null);return {looked:r.looked,reply:r.reply,suggestions:r.suggestions.map(s=>s.type+':'+s.name)};});
  await check('Alternative chat model activates through real IPC and renderer',async()=>{
   const before=(await api('snapshot')).models,profile=before.profiles.find(p=>p.role==='reasoning'&&!p.builtin&&p.name.includes('1.5b'));assert(profile);
   await js(`document.querySelector('#model-reasoning').value=${JSON.stringify(profile.id)};document.querySelector('#model-reasoning').dispatchEvent(new Event('change'));document.querySelector('[data-model-use="reasoning"]').click();`);
@@ -102,7 +107,7 @@ await check('Minimum window size keeps application details accessible',async()=>
  });
  await check('Renderer can disable interpretation and restore bundled defaults',async()=>{
   await js(`document.querySelector('#model-reasoning').value='off';document.querySelector('#model-reasoning').dispatchEvent(new Event('change'));document.querySelector('[data-model-use="reasoning"]').click();`);await waitFor(async()=>{const s=await api('snapshot');return !s.models.busy&&s.models.active.reasoning==='off';});const off=await api('snapshot');assert.equal(off.reasoner.pid,null);assert.notEqual(off.models.active.embedding,'embedding:minilm');
-  await js(`document.querySelector('#models-reset').click()`);await waitFor(async()=>{const s=await api('snapshot');return s.models.active.embedding==='embedding:minilm'&&s.models.active.reasoning==='reasoning:qwen3';});assert.equal((await api('snapshot')).models.settings.context,4096);
+  await js(`document.querySelector('#models-reset').click()`);await waitFor(async()=>{const s=await api('snapshot');return s.models.active.embedding==='embedding:minilm'&&s.models.active.reasoning==='reasoning:qwen3';});assert.equal((await api('snapshot')).models.settings.context,8192);
  });
  await check('Custom registration and watch-folder removal preserve application files',async()=>{
   await api('removeApp',report.probeId);assert(!(await api('snapshot')).prefs.custom.some(a=>a.id===report.probeId));assert(fs.existsSync(probe));

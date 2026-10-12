@@ -4,14 +4,14 @@ A Windows 11 desktop library for applications, software components, portable too
 
 ## Install
 
-Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.5.2.exe** and **apphub-1.5.2-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
+Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.6.0.exe** and **apphub-1.6.0-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
 
 ## Use
 
 Open AppHub from the desktop or Start menu. The library refreshes when it starts. Use **Sync** in the status bar after adding or removing software. WinGet update information refreshes on first launch and after six hours; **Updates → Check for updates** refreshes it immediately.
 
 - **Home** shows an ask box, live memory, storage and processor gauges, your favorites and recently opened apps. Click a gauge to ask about it.
-- **Chat** answers questions about your apps and this PC. See Local chat below.
+- **Chat** answers questions about your apps and this PC, looks things up when a question needs them, and offers buttons for what it suggests. See Local chat below.
 - Search by name, partial name, typo, tag, or a task such as **make my screen warmer at night**. Search includes Windows settings.
 - Click an app or setting to open it. Use its **⋯** button or right-click for details. Entries with nothing to launch, such as drivers, plugins, runtimes, or background components, show their details instead. Filter apps by category with the chips above the grid, and switch between grid and list layouts.
 - Star apps and settings to add favorites. Add comma-separated tags in the details panel. Hide entries you do not need to see; **Show hidden** is available when browsing.
@@ -22,7 +22,7 @@ Open AppHub from the desktop or Start menu. The library refreshes when it starts
 
 ## Appearance
 
-**Settings → Appearance** offers nine themes (System follows the Windows app mode) and seven pastel accent colours. The choice is stored on this PC.
+**Settings → Appearance** offers seventeen themes, ten dark and six light plus System, which follows the Windows app mode, and seven pastel accent colours. The choice is stored on this PC.
 
 ## Keyboard
 
@@ -30,15 +30,43 @@ Open AppHub from the desktop or Start menu. The library refreshes when it starts
 
 ## Local chat
 
-Chat uses the same local chat model as search. For each message AppHub gives the model a read-only snapshot: Windows version and uptime, processor and load, memory, graphics adapters, drive space, battery, the programs using the most memory and CPU, the programs that start with Windows, counts of your library by category, available updates, and the library entries closest to your message. It does not read your files, browser data, or the contents of any app.
+Chat runs on this PC. Every message comes with a read-only snapshot: Windows version and uptime, processor and load, memory, graphics adapters, drive space, battery, the programs using the most memory and CPU, the programs that start with Windows, counts of your library by category, available updates, and the library entries closest to your message.
 
-The model cannot run anything. It replies with text and may name library entries; AppHub shows **Open**, **Update…** and details buttons only for entries that exist in your library and that the reply names. Updates still go through the usual review dialog. Replies stream as they are written, **Stop** ends one early, and **New chat** clears the conversation. Conversations are kept in memory only and are gone when AppHub closes. Small local models make mistakes; check anything important.
+When a question needs more, AppHub runs up to three read-only lookups for it and shows which ones under the reply:
+
+- running programs, with the ones that are not responding
+- Windows services from installed software
+- folder sizes in your user profile, app data and program folders
+- network adapters, Wi-Fi, addresses, DNS and VPN
+- crashes, freezes, unexpected shutdowns and errors from the Windows event log for the last 7 days
+- Windows Update history and whether a restart is pending
+- battery wear and charge cycles, where the PC reports them
+- installed app sizes and install dates
+- startup entries and whether each is enabled
+- hardware: PC model, BIOS, memory modules, drives and their health, displays and graphics driver
+- the WinGet catalog, when you ask for software you do not have
+
+Keywords in the message choose the lookups; when none match, the chat model picks. Folder lookups report sizes only: AppHub never opens your files or lists their names. A catalog lookup asks WinGet, which uses the network like **Install apps** does; everything else stays on the PC.
+
+The model cannot run anything. It replies with text and names buttons, and AppHub shows a button only for something that exists and that the reply names. Each button opens a confirmation first:
+
+- **Open**, **Update…** and **Review all…** for library entries and their updates
+- **Uninstall…** runs the WinGet uninstaller through the Activity queue, or opens Windows' Installed apps page for apps WinGet does not manage. It is also in an app's details panel.
+- **End…** closes a running program. Windows components, security software and AppHub itself are never offered and are refused if requested.
+- **Disable…** stops a program starting with Windows, the same way Task Manager does. The entry stays in place and can be switched back on in Windows Settings › Apps › Startup. Entries that apply to all users are changed there too.
+- **Install…** shows the WinGet package details before anything is installed.
+
+Replies stream as they are written, **Stop** ends one early, and **New chat** clears the conversation. Conversations are kept in memory only and are gone when AppHub closes. Small local models make mistakes, so treat replies as a starting point.
+
+### Larger chat model
+
+**Settings → Local models** offers Qwen3 8B (Q4_K_M, 4.7 GB) as an optional download for Chat. It gives fuller answers and follows longer questions better; replies take about twice as long and it uses about 6 GB of memory while loaded. Search keeps the bundled 4B model either way, so search speed does not change. The download needs a PC with 16 GB of memory, comes from the publisher's repository at a pinned revision, resumes if interrupted, and is checked against a fixed SHA256 before it is used. It then has to pass the same compatibility check as any other model. **Stop using** returns Chat to the bundled model and **Delete** removes the file. This is the only model AppHub ever downloads, and only when you press **Download**.
 
 ## Local search
 
 Two bundled models run locally: quantized `Xenova/all-MiniLM-L6-v2` retrieves matches using embeddings, and `Qwen3-4B-Q4_K_M` interprets every search of two or more characters unless it names an app exactly or by prefix. The chat model runs on the graphics card through Vulkan when one is available and on the CPU otherwise; **Settings → Use the graphics card** turns GPU use off. Expect a second or two per answer on a GPU and several seconds on a CPU; name and keyword results appear immediately, and editing the search cancels the pending answer without unloading the model. Qwen lists up to four entries from the retrieved library that are made for the task, each with a reason; its suggestions never trigger actions. Semantic results appear while it prepares an answer. Each recommendation has its own **Open [name]** and **Details** buttons. Buttons use the current library entry; AI text cannot supply a command or URL. Unavailable apps cannot be opened, and entries without a launch target offer inspection. Nothing opens until you click. Each model has a separate process and unloads after 60 seconds of inactivity; the embedding timer is extended when interpretation finishes. Qwen uses a bounded 4096-token context and four CPU threads; with GPU use on, every layer is offloaded, and if the GPU cannot load the model AppHub starts it on the CPU instead. The native server binds only to a random loopback port with a random authentication key and no web interface. Closing AppHub or disabling AI also stops the native model process.
 
-MiniLM uses 384 dimensional embeddings alongside name, keyword, and typo matching. Model files are bundled, so searching needs no model download, account, API key, or network connection. After the last completed search, the model process exits after 60 seconds; a later search starts it again. The first search indexes the library and may take longer. Saved vectors make subsequent searches faster. Disable AI in AppHub settings to use name and keyword matching alone.
+MiniLM uses 384 dimensional embeddings alongside name, keyword, and typo matching. Model files are bundled, so searching and chatting need no model download, account, API key, or network connection. After the last completed search, the model process exits after 60 seconds; a later search starts it again. The first search indexes the library and may take longer. Saved vectors make subsequent searches faster. Disable AI in AppHub settings to use name and keyword matching alone.
 
 Your inventory, tags, queries, and vectors stay on this PC. WinGet catalog lookups, update checks, downloads, and installers use the network independently of local search.
 
@@ -51,7 +79,7 @@ Open **AppHub settings → Your local models**. Matching and interpretation have
 
 Weights remain where you selected them. Moving, replacing, or deleting a selected custom model causes a fallback to bundled defaults on the next startup; test the replacement again. Removing an inactive profile forgets the reference and leaves its files intact. Embedding vectors use separate caches for model fingerprints and prefixes. Thread/context limits and prefixes are shared settings for their respective roles, so review them when changing models.
 
-Alternative models covered by integration tests: paraphrase-MiniLM-L3-v2 (ONNX q8) and Qwen2.5 1.5B Instruct Q4_K_M (GGUF). These are optional test models, not additional bundled defaults. Passing the check confirms a small test task; it cannot guarantee every model's quality for every request. Download compatible files from their publishers before adding them. AppHub does not download custom models automatically.
+Alternative models covered by integration tests: paraphrase-MiniLM-L3-v2 (ONNX q8) and Qwen2.5 1.5B Instruct Q4_K_M (GGUF). These are optional test models, not additional bundled defaults. Passing the check confirms a small test task; it cannot guarantee every model's quality for every request. Download compatible files from their publishers before adding them. AppHub does not download custom models; the optional larger chat model above is the one exception, and only on request.
 
 ## Boundaries
 

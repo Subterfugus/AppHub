@@ -24,7 +24,7 @@ test('chat history is trimmed to the context and always starts with the user',()
  assert(chat.system.length+chat.messages.reduce((n,m)=>n+m.content.length,0)<2048*3);
 });
 test('suggestions are limited to known entries the reply names',()=>{
- const {entries}=buildChat({turns:[{role:'user',content:'x'}],items,related:[items[0],items[3]],system});
- assert.deepEqual(resolveSuggestions(['Night light','Paint','Invented','Night light','Notes'],entries,'Use night light or Paint.'),[{id:'d',name:'Night light'},{id:'a',name:'Paint'}]);
- assert.deepEqual(resolveSuggestions(['Paint'],entries,'I cannot see that.'),[]);assert.deepEqual(resolveSuggestions(null,entries,'Paint'),[]);
+ const {options}=buildChat({turns:[{role:'user',content:'x'}],items,related:[items[0],items[3]],system});
+ assert.deepEqual(resolveSuggestions(['Night light','Paint','Invented','Night light','Notes'],options,'Use night light or Paint.'),[{type:'entry',id:'d',name:'Night light'},{type:'entry',id:'a',name:'Paint'}]);
+ assert.deepEqual(resolveSuggestions(['Paint'],options,'I cannot see that.'),[]);assert.deepEqual(resolveSuggestions(null,options,'Paint'),[]);
 });

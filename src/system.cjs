@@ -37,17 +37,17 @@ function shape(raw={}){
  };
 }
 // Compact wording for the model: every line is a fact it may quote, and nothing else is known to it.
-function describe(s){
+function describe(s,{processes=true,startup=true}={}){
  const lines=[`Windows: ${s.os}${s.build?' (build '+s.build+')':''}; running for ${s.uptimeHours} hours since last restart`,
   `Processor: ${s.cpu}${s.cores?`, ${s.cores} cores / ${s.threads} threads`:''}${s.cpuLoad!=null?`; overall CPU load now ${s.cpuLoad}%`:''}`,
   `Memory: ${Math.round((s.memoryTotalGb-s.memoryFreeGb)*10)/10} GB used of ${s.memoryTotalGb} GB (${s.memoryFreeGb} GB free)`];
  if(s.gpus.length)lines.push('Graphics: '+s.gpus.join('; '));
  for(const d of s.disks)lines.push(`Drive ${d.drive}${d.label?' ('+d.label+')':''}: ${d.freeGb} GB free of ${d.sizeGb} GB (${Math.round((1-d.freeGb/d.sizeGb)*100)}% full)`);
  if(s.battery)lines.push(`Battery: ${s.battery.charge}%, ${s.battery.plugged?'plugged in':'on battery'}`);
- if(s.byMemory.length)lines.push('Programs using the most memory now: '+s.byMemory.map(p=>`${p.name} ${p.memoryGb} GB${p.count>1?` (${p.count} processes)`:''}`).join(', '));
- lines.push('Programs using the most CPU now: '+(s.byCpu.length?s.byCpu.map(p=>`${p.name} ${p.cpu}%`).join(', '):'nothing significant'));
+ if(processes&&s.byMemory.length)lines.push('Programs using the most memory now: '+s.byMemory.map(p=>`${p.name} ${p.memoryGb} GB${p.count>1?` (${p.count} processes)`:''}`).join(', '));
+ if(processes)lines.push('Programs using the most CPU now: '+(s.byCpu.length?s.byCpu.map(p=>`${p.name} ${p.cpu}%`).join(', '):'nothing significant'));
  if(s.processCount)lines.push(`Running processes: ${s.processCount}`);
- if(s.startup.length)lines.push(`Programs that start with Windows (${s.startup.length}): ${s.startup.join(', ')}`);
+ if(startup&&s.startup.length)lines.push(`Programs that start with Windows (${s.startup.length}): ${s.startup.join(', ')}`);
  return lines.join('\n');
 }
 class SystemInfo{

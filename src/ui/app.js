@@ -41,8 +41,16 @@ const THEMES = [
   {id: 'nord', name: 'Nord', colors: ['#2e3440', '#434c5e', '#eceff4']},
   {id: 'mocha', name: 'Mocha', colors: ['#1e1e2e', '#313244', '#cdd6f4']},
   {id: 'forest', name: 'Forest', colors: ['#121a16', '#22302a', '#e8f0ea']},
+  {id: 'dusk', name: 'Dusk', colors: ['#1a1625', '#2f2942', '#ece8f5']},
+  {id: 'rosewood', name: 'Rosewood', colors: ['#1d1517', '#35272b', '#f5ecec']},
+  {id: 'slate', name: 'Slate', colors: ['#1c2126', '#303841', '#e9edf1']},
+  {id: 'espresso', name: 'Espresso', colors: ['#1c1713', '#342b24', '#f3ebe2']},
   {id: 'light', name: 'Light', colors: ['#ffffff', '#ebebee', '#1b1c1f']},
-  {id: 'paper', name: 'Paper', colors: ['#fbf8f1', '#e9e2d3', '#2b2620']}
+  {id: 'paper', name: 'Paper', colors: ['#fbf8f1', '#e9e2d3', '#2b2620']},
+  {id: 'sand', name: 'Sand', colors: ['#f6efe4', '#e3d7c4', '#2e261c']},
+  {id: 'sage', name: 'Sage', colors: ['#f2f5ef', '#dbe3d5', '#1f2a22']},
+  {id: 'blossom', name: 'Blossom', colors: ['#fbf3f4', '#ecdcdf', '#2d2023']},
+  {id: 'sky', name: 'Sky', colors: ['#f2f6fb', '#d9e4f1', '#1b2530']}
 ];
 const ACCENTS = [['peach', 'Peach', '#f3c4a3'], ['butter', 'Butter', '#f1dc9e'], ['rose', 'Rose', '#f2b5c0'], ['violet', 'Violet', '#c9b8f3'], ['blue', 'Blue', '#abc8f5'], ['teal', 'Teal', '#a5dccf'], ['lime', 'Lime', '#d2e7a4']];
 let theme = THEMES.some(t => t.id === stored('theme')) ? stored('theme') : 'system';
@@ -63,7 +71,7 @@ let showHidden = false, toastTimer, modalGeneration = 0, libraryPlan = null;
 let catalogQuery = '', catalogPackages = null, catalogLoading = false, catalogGeneration = 0;
 let modelDraft = null, modelPending = false, modelError = '';
 const answerOpening = new Set();
-let chat = [], chatBusy = false, chatDraft = '', chatStream = '', chatEpoch = 0, askDraft = '';
+let chat = [], chatBusy = false, chatDraft = '', chatStream = '', chatStatus = '', chatEpoch = 0, askDraft = '';
 let systemInfo = null, systemTimer = null, systemLoading = false;
 const recentlyActivated = new Set();
 
@@ -82,7 +90,7 @@ const modelName = role => role === 'reasoning' && state.models?.active?.reasonin
   ? 'Interpretation off'
   : String((role === 'embedding' ? state.ai : state.reasoner)?.model || state.models?.profiles?.find(p => p.id === state.models?.active?.[role])?.name || (role === 'embedding' ? 'Local retrieval' : 'Local interpretation'));
 const modelDescription = () => `${modelName('embedding')} finds apps and Windows settings by meaning. `
-  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} reads each search, lists the entries that fit, and answers in Chat.`)
+  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} reads each search and lists the entries that fit. ${state.models?.profiles?.find(p => p.id === state.models?.active?.chat)?.name || 'It also'} answers in Chat.`)
   + ' Names, partial names and typos work either way. Queries and your software list stay on this PC.';
 
 function toast(text, error = false) {
@@ -151,7 +159,7 @@ function updateJobStatus() {
   el.classList.toggle('hidden', !running && !queued);
   if (running) {
     const p = jobProgress(running);
-    el.querySelector('span').textContent = `${running.action === 'upgrade' ? 'Updating' : 'Installing'} ${p.position} of ${p.total} · ${p.name}${queued ? ` · ${queued} queued` : ''}`;
+    el.querySelector('span').textContent = `${{upgrade: 'Updating', uninstall: 'Uninstalling'}[running.action] || 'Installing'} ${p.position} of ${p.total} · ${p.name}${queued ? ` · ${queued} queued` : ''}`;
   } else if (queued) el.querySelector('span').textContent = plural(queued, 'operation') + ' queued';
 }
 
@@ -435,10 +443,11 @@ function renderDetails() {
     + (!a.launch ? '<div class="notice">Nothing to open. This is probably a runtime, driver, plugin or background component.</div>' : '')
     + (a.available ? `<div class="notice info">Update available: ${esc(a.available)} <button class="text-button" id="detail-update">Review update</button></div>` : '')
     + `<dl class="detail-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`
-    + `<div class="detail-links">${a.location || a.executable ? '<button class="text-button" id="reveal">Show in File Explorer</button>' : ''}${a.packageId ? '<button class="text-button" id="package-info">Package info</button>' : ''}</div>`
+    + `<div class="detail-links">${a.location || a.executable ? '<button class="text-button" id="reveal">Show in File Explorer</button>' : ''}${a.packageId ? '<button class="text-button" id="package-info">Package info</button><button class="text-button" id="detail-uninstall">Uninstall…</button>' : ''}</div>`
     + `<div class="detail-section"><label for="tags">Tags</label><input class="text-input" id="tags" data-item-id="${esc(a.id)}" placeholder="work, daily, audio" value="${esc((a.tags || []).join(', '))}"><small>Comma-separated. Tags are searchable.</small></div>`
     + `<div class="detail-section"><button class="text-button" id="hide-app">${a.hidden ? 'Show in library' : 'Hide from library'}</button>${isCustom ? '<button class="text-button" id="remove-custom">Remove from library</button><small>Removing keeps the file on your PC.</small>' : ''}</div>`;
 
+  $('#detail-uninstall')?.addEventListener('click', () => confirmUninstall(a));
   $('#close-detail').onclick = () => {
     const id = selected;
     selected = null;
@@ -486,6 +495,49 @@ function queueFromModal(button, action, message) {
     if (modalIsCurrent(token)) { closeModal(); navigate('activity'); }
     toast(message);
   }).finally(() => { if (button.isConnected) button.disabled = false; });
+}
+
+// One confirmation dialog for the actions chat and the details panel can start. Nothing runs until its button is clicked.
+function confirmAction({title, body, label, danger, run, done}) {
+  modal(`<h2>${esc(title)}</h2><p>${body}</p><div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="confirm-action" class="button ${danger ? 'danger' : 'primary'}">${esc(label)}</button></div>`);
+  $('#confirm-action').onclick = async e => {
+    const button = e.currentTarget, token = modalGeneration;
+    button.disabled = true;
+    try {
+      const result = await run();
+      if (modalIsCurrent(token)) closeModal();
+      done?.(result);
+    } catch (error) {
+      toast(cleanError(error), true);
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+  };
+}
+function confirmUninstall(a, done) {
+  if (!a.packageId) {
+    confirmAction({title: `Uninstall ${a.name}?`, body: 'AppHub uninstalls apps that WinGet manages. This one is not, so remove it from the Installed apps page in Windows Settings.', label: 'Open Installed apps', run: () => api.openSettings('appsfeatures')});
+    return;
+  }
+  confirmAction({
+    title: `Uninstall ${a.name}?`, label: 'Uninstall', danger: true,
+    body: `WinGet runs the uninstaller for ${esc(a.packageId)}. Whether your settings and data for the app are kept depends on that uninstaller, and it may ask for administrator approval.`,
+    run: () => api.uninstall(a.id), done: () => { done?.(); navigate('activity'); toast('Uninstall added to the queue'); }
+  });
+}
+function confirmEnd(p, done) {
+  confirmAction({
+    title: `End ${p.name}?`, label: 'End program', danger: true,
+    body: `${p.count > 1 ? `All ${p.count} ${esc(p.name)} processes close` : esc(p.name) + ' closes'} immediately, and anything unsaved in it is lost.`,
+    run: () => api.endProcess(p.name), done: () => { done?.(); toast(`${p.name} ended`); }
+  });
+}
+function confirmStartup(s, done) {
+  confirmAction({
+    title: `Stop ${s.name} starting with Windows?`, label: 'Disable',
+    body: 'The program is not closed or removed. You can switch it back on in Windows Settings › Apps › Startup, or in Task Manager.',
+    run: () => api.setStartup(s.key, false), done: () => { done?.(); toast(`${s.name} will no longer start with Windows`); }
+  });
 }
 
 async function exportLibrary() {
@@ -580,11 +632,11 @@ function renderActivityContent() {
   const outcome = r => `${esc(r.id)} · ${r.uncertain ? 'Outcome uncertain' : r.notRun ? 'Not run' : r.success ? 'Succeeded' : 'Failed'}${r.code !== undefined ? ' · Exit code ' + r.code : ''}`;
   $('#body').innerHTML = state.jobs.length
     ? state.jobs.map(j => `<article class="activity-card" data-job="${esc(j.id)}"><div class="activity-header"><span class="activity-icon ${tone(j.status)}">${svg(j.status === 'completed' ? 'check' : tone(j.status) === 'danger' ? 'alert' : 'download')}</span>`
-      + `<div class="plan-entry"><strong>${j.action === 'upgrade' ? 'Update' : 'Install'} · ${plural(j.packages.length, 'package')}</strong><small>${new Date(j.created).toLocaleString()}${summary(j) ? ' · ' + summary(j) : ''}</small><small class="package-ids">${esc(j.packages.map(p => p.id).join(', '))}</small></div><span class="pill ${tone(j.status)}">${esc(statusLabel(j.status))}</span></div>`
+      + `<div class="plan-entry"><strong>${{upgrade: 'Update', uninstall: 'Uninstall'}[j.action] || 'Install'} · ${plural(j.packages.length, 'package')}</strong><small>${new Date(j.created).toLocaleString()}${summary(j) ? ' · ' + summary(j) : ''}</small><small class="package-ids">${esc(j.packages.map(p => p.id).join(', '))}</small></div><span class="pill ${tone(j.status)}">${esc(statusLabel(j.status))}</span></div>`
       + progress(j)
       + (j.status === 'queued' ? `<button class="text-button" data-cancel-job="${esc(j.id)}">Cancel</button>` : '')
       + `<details><summary>Installer output</summary><pre>${esc(j.log || 'Waiting in queue…')}</pre>${(j.results || []).map(r => `<small>${outcome(r)}</small><br>`).join('')}</details></article>`).join('')
-    : '<div class="empty"><h3>No activity yet</h3><p>Installs and updates are logged here with their installer output.</p><button id="activity-updates" class="button subtle">Go to Updates</button></div>';
+    : '<div class="empty"><h3>No activity yet</h3><p>Installs, updates and uninstalls are logged here with their installer output.</p><button id="activity-updates" class="button subtle">Go to Updates</button></div>';
   document.querySelectorAll('.activity-card[data-job]').forEach(el => {
     const old = previous.get(el.dataset.job);
     if (old) { el.querySelector('details').open = old.open; el.querySelector('pre').scrollTop = old.scroll; }
@@ -684,7 +736,7 @@ function renderModelsContent() {
   if (!host) return;
   if (!m) { host.innerHTML = '<section class="panel"><h2>Local models</h2><p>Loading model settings…</p></section>'; return; }
   const profiles = m.profiles || [];
-  if (!modelDraft) modelDraft = {...m.active, threads: m.settings?.threads || 4, context: m.settings?.context || 4096, queryPrefix: m.settings?.queryPrefix || '', documentPrefix: m.settings?.documentPrefix || ''};
+  if (!modelDraft) modelDraft = {...m.active, threads: m.settings?.threads || 4, context: m.settings?.context || 8192, queryPrefix: m.settings?.queryPrefix || '', documentPrefix: m.settings?.documentPrefix || ''};
   for (const role of ['embedding', 'reasoning']) if (modelDraft[role] !== 'off' && !profiles.some(p => p.id === modelDraft[role])) modelDraft[role] = m.active[role];
   const busy = modelPending || m.busy, open = host.querySelector('details')?.open, off = busy ? 'disabled' : '';
 
@@ -707,7 +759,21 @@ function renderModelsContent() {
   const prefixes = ['queryPrefix', 'documentPrefix']
     .map(key => `<label class="model-prefix">${key === 'queryPrefix' ? 'Search prefix' : 'Document prefix'} <input id="model-${key}" class="text-input" maxlength="100" value="${esc(modelDraft[key])}" ${off}></label>`).join('');
 
+  const gbs = n => (n / 1073741824).toFixed(1) + ' GB';
+  const downloads = (m.downloads || []).map(d => {
+    const now = m.downloading?.id === d.id ? m.downloading : null, active = !!d.profile && m.active.chat === d.profile;
+    const status = now ? `${now.stage} · ${gbs(now.received)} of ${gbs(now.total)}`
+      : active ? 'Now answering in Chat.' : d.profile ? 'Downloaded, not in use.' : d.fits ? `${gbs(d.bytes)} download, kept in your AppHub data folder.` : `Needs a PC with ${d.memoryGb} GB of memory.`;
+    const action = now ? '<button class="button subtle" data-download-cancel>Pause</button>'
+      : active ? `<span class="pill ok">In use</span><button class="text-button" data-download-use="" ${off}>Stop using</button>`
+      : d.profile ? `<button class="button primary" data-download-use="${esc(d.profile)}" ${off}>Use for Chat</button><button class="text-button" data-download-remove="${esc(d.id)}" ${off}>Delete</button>`
+      : `<button class="button primary" data-download="${esc(d.id)}" ${busy || !d.fits ? 'disabled' : ''}>Download</button>`;
+    return `<div class="setting-row download-row"><div><strong>${esc(d.name)} · optional</strong><small>A larger model for Chat only; search keeps the faster one. Its answers are fuller and it follows longer questions better, but replies take about twice as long and it uses about 6 GB of memory while loaded. A graphics card is strongly recommended. ${status}</small>`
+      + (now ? `<div class="bar"><i style="width:${Math.round(now.received / now.total * 100)}%"></i></div>` : '') + `</div><div class="download-actions">${action}</div></div>`;
+  }).join('');
+
   host.innerHTML = '<section class="panel models-panel"><h2>Local models</h2><p>Pick the models used for matching and interpretation. The current model stays active until the replacement passes its compatibility check.</p>'
+    + downloads
     + `<div class="model-grid">${['embedding', 'reasoning'].map(choice).join('')}</div>`
     + `<div class="model-tuning">${tuning}<small>Applied when you test and use an interpretation model.</small></div>`
     + `<div class="notice ${modelError || m.warning ? 'warn' : ''}" role="status" aria-live="polite">${esc(modelError || m.warning || m.message || (busy ? 'Checking compatibility…' : 'Ready.'))}</div>`
@@ -725,6 +791,16 @@ function renderModelsContent() {
   host.querySelectorAll('[data-model-use]').forEach(b => b.onclick = () => runModelAction(() => api.activateModel(b.dataset.modelUse, modelDraft[b.dataset.modelUse], {threads: +modelDraft.threads, context: +modelDraft.context, queryPrefix: modelDraft.queryPrefix, documentPrefix: modelDraft.documentPrefix})));
   host.querySelectorAll('[data-model-remove]').forEach(b => b.onclick = () => runModelAction(() => api.removeModel(b.dataset.modelRemove)));
   $('#models-reset').onclick = () => runModelAction(async () => { const r = await api.resetModels(); modelDraft = null; return r; });
+  // A download runs in the background, so it does not lock the rest of this panel the way a compatibility check does.
+  host.querySelectorAll('[data-download]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const result = await attempt(() => api.downloadModel(b.dataset.download));
+    if (result) { state.models = result; modelDraft = null; toast('The larger model now answers in Chat'); }
+    if (view === 'preferences' && !query) renderModels();
+  });
+  host.querySelector('[data-download-cancel]')?.addEventListener('click', () => api.cancelDownload().catch(() => {}));
+  host.querySelectorAll('[data-download-use]').forEach(b => b.onclick = () => runModelAction(async () => { const r = await api.chatModel(b.dataset.downloadUse || null); modelDraft = null; return r; }));
+  host.querySelectorAll('[data-download-remove]').forEach(b => b.onclick = () => runModelAction(async () => { const r = await api.removeDownload(b.dataset.downloadRemove); modelDraft = null; return r; }));
 }
 async function runModelAction(action) {
   if (modelPending || state.models?.busy) return;
@@ -816,34 +892,60 @@ function renderHome() {
   systemTimer = setInterval(() => { if (view === 'home' && !query && !document.hidden) refreshSystem(); else if (view !== 'home') { clearInterval(systemTimer); systemTimer = null; } }, 20000);
 }
 
-// Chat: the model answers from the library and system snapshot; actions are buttons under its reply.
-const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Which apps have updates?', 'What do I have for editing video?', 'What starts with Windows?'];
-function chatSuggestions(m) {
-  const entries = (m.suggestions || []).map(s => item(s.id)).filter(a => a && !a.hidden);
-  if (!entries.length) return '';
-  return `<div class="suggestions">${entries.map(a => {
-    const id = esc(a.id), detail = a.available ? `${a.version || ''} → ${a.available}` : a.kind === 'setting' ? 'Windows setting' : a.publisher || a.category || '';
-    return `<div class="suggestion" ${tintAttrs(a)}>${icon(a)}<div class="suggestion-text"><strong>${esc(a.name)}</strong><small>${esc(detail)}</small></div>`
-      + (a.available ? `<button class="button subtle" data-chat-update="${id}">Update…</button>` : '')
-      + (a.launch ? `<button class="button primary" data-chat-open="${id}" ${a.unavailable ? 'disabled' : ''}>Open</button>` : '')
-      + `<button class="icon-button" data-chat-info="${id}" aria-label="Details for ${esc(a.name)}" title="Details">${svg('dots')}</button></div>`;
-  }).join('')}</div>`;
+// Chat: the model answers from the library, a system snapshot and the lookups it asked for. Every action is a button under its reply, and each one asks before it runs.
+const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Has anything crashed this week?', 'What is taking up space on my disk?', 'What starts with Windows?'];
+function chatSuggestions(m, index) {
+  const rows = (m.suggestions || []).map((s, i) => {
+    const act = (verb, label, style = 'subtle') => s.done ? '' : `<button class="button ${style}" data-chat-act="${index}:${i}:${verb}">${label}</button>`;
+    const row = (subject, title, detail, buttons) => `<div class="suggestion" ${tintAttrs(subject)}>${icon(subject)}<div class="suggestion-text"><strong>${esc(title)}</strong><small>${esc(detail)}</small></div>${s.done ? `<span class="pill">${esc(s.done)}</span>` : ''}${buttons}</div>`;
+    if (!s.type || s.type === 'entry') {
+      const a = item(s.id);
+      if (!a || a.hidden) return '';
+      const id = esc(a.id), detail = a.available ? `${a.version || ''} → ${a.available}` : a.kind === 'setting' ? 'Windows setting' : a.publisher || a.category || '';
+      return row(a, a.name, detail, (s.uninstall && a.kind === 'app' ? act('uninstall', 'Uninstall…') : '')
+        + (a.available ? `<button class="button subtle" data-chat-update="${id}">Update…</button>` : '')
+        + (a.launch && !s.uninstall ? `<button class="button primary" data-chat-open="${id}" ${a.unavailable ? 'disabled' : ''}>Open</button>` : '')
+        + `<button class="icon-button" data-chat-info="${id}" aria-label="Details for ${esc(a.name)}" title="Details">${svg('dots')}</button>`);
+    }
+    const subject = {id: s.type + ':' + s.name, name: String(s.name || '?')};
+    if (s.type === 'process') return row(subject, s.name, `Running${s.count > 1 ? ` · ${s.count} processes` : ''}${s.memoryGb ? ` · ${s.memoryGb} GB of memory` : ''}`, act('end', 'End…'));
+    if (s.type === 'startup') return row(subject, s.name, 'Starts with Windows', act('startup', 'Disable…'));
+    if (s.type === 'package') return row(subject, s.name, `${s.id} · ${s.version || 'latest'} · WinGet catalog`, act('install', 'Install…', 'primary'));
+    if (s.type === 'updates') {
+      const ready = (s.ids || []).filter(id => item(id)?.available).length;
+      return ready > 1 ? row({id: 'updates', name: 'Updates'}, plural(ready, 'app update'), 'You choose which ones install', act('updates', 'Review all…', 'primary')) : '';
+    }
+    return '';
+  }).join('');
+  return rows ? `<div class="suggestions">${rows}</div>` : '';
 }
-function chatMessage(m) {
+function chatAct(index, i, verb) {
+  const s = chat[index]?.suggestions?.[i];
+  if (!s) return;
+  const done = label => () => { s.done = label; if (view === 'chat' && !query) render(); };
+  if (verb === 'uninstall') { const a = item(s.id); if (a) confirmUninstall(a, done('Queued')); }
+  else if (verb === 'end') confirmEnd(s, done('Ended'));
+  else if (verb === 'startup') confirmStartup(s, done('Disabled'));
+  else if (verb === 'install') inspectCatalog(s);
+  else if (verb === 'updates') { const apps = (s.ids || []).map(item).filter(a => a?.available); if (apps.length) reviewUpdates(apps); }
+}
+function chatMessage(m, index) {
   if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
-  return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${chatSuggestions(m)}</div></div>`;
+  return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}`
+    + `${m.looked?.length ? `<small class="looked">Checked ${esc(m.looked.join(', '))}</small>` : ''}${chatSuggestions(m, index)}</div></div>`;
 }
 function renderChat() {
   const log = $('#chat-log'), pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-  const off = state.prefs.aiEnabled === false ? 'Local AI is turned off.' : state.models?.active?.reasoning === 'off' ? 'No chat model is selected.' : '';
-  const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('mark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : '<span class="typing">Thinking…</span>'}</div></div>` : '';
+  const chatProfile = state.models?.profiles?.find(p => p.id === state.models?.active?.chat), engine = chatProfile ? state.chatEngine : state.reasoner;
+  const off = state.prefs.aiEnabled === false ? 'Local AI is turned off.' : state.models?.active?.reasoning === 'off' && !chatProfile ? 'No chat model is selected.' : '';
+  const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('mark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : `<span class="typing" id="chat-status">${esc(chatStatus || 'Thinking…')}</span>`}</div></div>` : '';
   const empty = '<div class="chat-empty"><h2>Ask about this PC</h2>'
-    + '<p>Chat runs on this PC and reads your app library, available updates and live system information. It cannot see your files or change anything; it answers and offers buttons.</p>'
+    + '<p>Chat runs on this PC. It reads your app library and system information, and looks things up when a question needs them: running programs, services, folder sizes, network status, recent crashes, Windows Update history, battery health, startup programs, hardware and the WinGet catalog. It never opens your files, and it cannot change anything itself. It offers buttons, and each one asks before it runs.</p>'
     + (off ? `<div class="notice warn">${off} <button class="text-button" data-view="preferences">Open Settings</button></div>` : `<div class="examples">${CHAT_EXAMPLES.map(q => `<button class="example" data-ask="${esc(q)}">${esc(q)}${svg('arrow')}</button>`).join('')}</div>`) + '</div>';
   $('#body').innerHTML = `<div class="chat"><div class="chat-log" id="chat-log">${chat.length || chatBusy ? chat.map(chatMessage).join('') + pending : empty}</div>`
     + `<form id="chat-form" class="composer"><textarea id="chat-input" rows="1" maxlength="2000" placeholder="Ask about your apps or this PC" aria-label="Message" ${off ? 'disabled' : ''}>${esc(chatDraft)}</textarea>`
     + (chatBusy ? `<button type="button" id="chat-stop" class="send stop" aria-label="Stop" title="Stop">${svg('stop')}</button>` : `<button class="send" aria-label="Send" title="Send" ${off ? 'disabled' : ''}>${svg('send')}</button>`) + '</form>'
-    + `<small class="chat-note">${esc(modelName('reasoning'))} · ${state.reasoner?.device ? 'running on the ' + esc(state.reasoner.device) : 'on this PC'} · answers can be wrong, so check anything important</small></div>`;
+    + `<small class="chat-note">${esc(chatProfile?.name || modelName('reasoning'))} · ${engine?.device ? 'running on the ' + esc(engine.device) : 'on this PC'} · answers can be wrong, so check anything important</small></div>`;
   const next = $('#chat-log');
   if (pinned) next.scrollTop = next.scrollHeight;
   const input = $('#chat-input');
@@ -856,7 +958,8 @@ function renderChat() {
   $('#body').onclick = e => {
     const pick = name => e.target.closest(`[data-chat-${name}]`)?.dataset['chat' + name[0].toUpperCase() + name.slice(1)];
     const ask = e.target.closest('[data-ask]'), go = e.target.closest('[data-view]');
-    if (pick('open')) launch(pick('open'));
+    if (pick('act')) { const [index, i, verb] = pick('act').split(':'); chatAct(+index, +i, verb); }
+    else if (pick('open')) launch(pick('open'));
     else if (pick('update')) { const a = item(pick('update')); if (a?.available) reviewUpdates([a]); }
     else if (pick('info')) openDetails(pick('info'));
     else if (ask) sendChat(ask.dataset.ask);
@@ -871,6 +974,10 @@ function updateChatStream() {
   el.textContent = chatStream;
   if (pinned) log.scrollTop = log.scrollHeight;
 }
+function updateChatStatus() {
+  const el = $('#chat-status');
+  if (el) el.textContent = chatStatus || 'Thinking…';
+}
 function newChat() {
   if (chatBusy) api.stopChat().catch(() => {});
   chatEpoch++; chat = []; chatBusy = false; chatStream = '';
@@ -882,14 +989,14 @@ async function sendChat(text) {
   if (!text || chatBusy) return;
   const epoch = chatEpoch;
   chat.push({role: 'user', content: text});
-  chatBusy = true; chatStream = ''; chatDraft = '';
+  chatBusy = true; chatStream = ''; chatStatus = ''; chatDraft = '';
   if ($('#chat-input')) $('#chat-input').value = ''; // otherwise focus retention restores the sent text
   if (view !== 'chat' || query) navigate('chat'); else render();
   const log = $('#chat-log');
   if (log) log.scrollTop = log.scrollHeight;
   try {
     const r = await api.chat(chat.filter(m => !m.error).map(({role, content}) => ({role, content})));
-    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
+    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), looked: Array.isArray(r.looked) ? r.looked : [], suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
   } catch (e) {
     if (epoch !== chatEpoch) return;
     const message = cleanError(e);
@@ -979,6 +1086,11 @@ api.onChange(data => {
     if (chatBusy && typeof data.chatDelta.text === 'string') { chatStream = data.chatDelta.text; updateChatStream(); }
     return;
   }
+  if (data.chatStatus) {
+    if (chatBusy && typeof data.chatStatus.text === 'string') { chatStatus = data.chatStatus.text; updateChatStatus(); }
+    return;
+  }
+  if ('chatEngine' in data) { state.chatEngine = data.chatEngine; if (!data.ai && !data.reasoner && !data.models && !data.items) return; }
   if (data.focusSearch) { $('#search').focus(); return; }
   if (data.error) { toast(data.error, true); return; }
   if (data.models) state.models = data.models;
