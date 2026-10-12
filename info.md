@@ -2,6 +2,16 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.5.0 — 2026-10-12
+
+- Added **Chat**: ask about your apps and this PC. The local model answers from a read-only snapshot of system information (memory, storage, processor load, graphics, battery, uptime, startup programs, the programs using the most memory and CPU), available updates and the closest library entries. It cannot see files and cannot run anything. Replies stream as they are written and can be stopped.
+- Chat replies can offer **Open**, **Update…** and details buttons, limited to library entries that exist and that the reply names. Nothing happens until you click, and updates still open the review dialog.
+- Added GPU acceleration. The bundled llama.cpp runtime is now the Vulkan build, which offloads the chat model to the graphics card and falls back to the CPU if the GPU cannot load it. **Settings → Use the graphics card** turns it off. The status bar and Settings show which device is in use.
+- Search answers now list up to four recommendations, each with its reason and its own Open and Details buttons. The model rates how well each pick fits, and alternatives are kept only when the task is what the entry is for.
+- Added **Home**: an ask box, live memory, storage and processor gauges that open a chat question when clicked, update and app counts, favorites, and recently opened apps. AppHub now opens on Home.
+- Restyled the interface: tiles take a tint from their own icon, entries without an icon get a coloured letter, and pages, tiles, the details panel, dialogs and buttons animate. Motion is disabled when Windows asks for reduced motion.
+- Validation: 77 unit tests, 16 hidden renderer checks and 21 full hidden Electron integration checks passed, including a real chat reply through IPC with the model on the GPU. Separate real-model checks compared GPU and CPU chat, and confirmed that stopping a reply keeps the model loaded.
+
 ## 1.4.0 — 2026-10-12
 
 - Redesigned the interface around launching. Clicking an app or setting opens it; details moved to a **⋯** button, right-click, or Space. Enter opens the focused app, or the top result while typing in search. Entries with nothing to launch still open their details.

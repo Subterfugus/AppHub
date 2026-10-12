@@ -18,7 +18,13 @@ const ICONS = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
+  chat: '<path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1-4.3A7.5 7.5 0 1 1 20 12.5z"/>',
+  send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
+  spark: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>'
 };
 const svg = name => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -49,22 +55,25 @@ function applyAppearance() {
 applyAppearance();
 
 let state = {items: [], prefs: {}, jobs: []};
-let view = 'all', category = '', selected = null, results = null, query = '', generation = 0;
+let view = 'home', category = '', selected = null, results = null, query = '', generation = 0;
 let mode = stored('mode') === 'list' ? 'list' : 'grid';
 let sort = ['name', 'source', 'recent'].includes(stored('sort')) ? stored('sort') : 'name';
-let searching = false, searchWarning = '', searchAnswer = '', searchRecommendations = [], reasoningWarning = '';
+let searching = false, searchWarning = '', searchAnswer = '', searchRecommendations = [], searchReasons = new Map(), reasoningWarning = '';
 let showHidden = false, toastTimer, modalGeneration = 0, libraryPlan = null;
 let catalogQuery = '', catalogPackages = null, catalogLoading = false, catalogGeneration = 0;
 let modelDraft = null, modelPending = false, modelError = '';
 const answerOpening = new Set();
+let chat = [], chatBusy = false, chatDraft = '', chatStream = '', chatEpoch = 0, askDraft = '';
+let systemInfo = null, systemTimer = null, systemLoading = false;
 const recentlyActivated = new Set();
 
 const nav = [
+  ['', [['home', 'home', 'Home'], ['chat', 'chat', 'Chat']]],
   ['Library', [['all', 'grid', 'Apps'], ['favorites', 'star', 'Favorites'], ['recent', 'clock', 'Recent'], ['settings', 'sliders', 'Windows settings']]],
   ['Packages', [['updates', 'download', 'Updates'], ['discover', 'plus', 'Install apps'], ['reproduce', 'swap', 'Export & restore'], ['activity', 'pulse', 'Activity']]]
 ];
 const categories = ['Development', 'Creative', 'Music & audio', 'Productivity', 'Browsers', 'Communication', 'Games', 'Utilities'];
-const titles = {all: 'Apps', favorites: 'Favorites', recent: 'Recent', settings: 'Windows settings', updates: 'Updates', discover: 'Install apps', reproduce: 'Export & restore', activity: 'Activity', preferences: 'Settings'};
+const titles = {home: 'Home', chat: 'Chat', all: 'Apps', favorites: 'Favorites', recent: 'Recent', settings: 'Windows settings', updates: 'Updates', discover: 'Install apps', reproduce: 'Export & restore', activity: 'Activity', preferences: 'Settings'};
 
 const item = id => state.items.find(a => a.id === id);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -86,8 +95,44 @@ async function attempt(fn) {
   try { return await fn(); } catch (e) { toast(cleanError(e), true); return null; }
 }
 
+const iconSource = a => typeof a.iconData === 'string' && /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(a.iconData) ? a.iconData : null;
+// Each entry carries a hue, taken from its icon once that has been sampled and from its name until then.
+const tints = new Map();
+const nameHue = name => { let h = 0; for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) % 360; return h; };
+function tint(a) {
+  if (tints.has(a.id)) return tints.get(a.id);
+  const fallback = nameHue(a.name), source = iconSource(a);
+  tints.set(a.id, fallback);
+  if (source) {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 16;
+        const g = canvas.getContext('2d', {willReadFrequently: true});
+        g.drawImage(img, 0, 0, 16, 16);
+        const d = g.getImageData(0, 0, 16, 16).data;
+        let x = 0, y = 0, weight = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], gr = d[i + 1], b = d[i + 2], max = Math.max(r, gr, b), spread = max - Math.min(r, gr, b);
+          if (d[i + 3] < 128 || spread < 40) continue;
+          const hue = (max === r ? ((gr - b) / spread) % 6 : max === gr ? (b - r) / spread + 2 : (r - gr) / spread + 4) * Math.PI / 3;
+          x += Math.cos(hue) * spread; y += Math.sin(hue) * spread; weight += spread;
+        }
+        if (!weight) return;
+        const hue = Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+        tints.set(a.id, hue);
+        document.querySelectorAll('[data-tint]').forEach(el => { if (el.dataset.tint === a.id) el.style.setProperty('--h', hue); });
+      } catch {}
+    };
+    img.src = source;
+  }
+  return fallback;
+}
+const tintAttrs = a => `data-tint="${esc(a.id)}" style="--h:${tint(a)}"`;
+
 function icon(a) {
-  const imageData = typeof a.iconData === 'string' && /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(a.iconData) ? a.iconData : null;
+  const imageData = iconSource(a);
   if (imageData) return `<span class="app-icon"><img src="${esc(imageData)}" alt=""></span>`;
   return `<span class="app-icon fallback">${a.kind === 'setting' ? svg('sliders') : esc((a.name.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase())}</span>`;
 }
@@ -161,7 +206,7 @@ function renderNav() {
   const isSearch = !!query.trim();
   const updates = state.items.filter(a => a.available).length;
   const counts = {all: state.items.filter(a => a.kind === 'app' && !a.hidden).length, updates};
-  $('#navigation').innerHTML = nav.map(([group, entries]) => `<div class="nav-group"><span class="nav-label">${group}</span>${entries.map(([id, symbol, label]) =>
+  $('#navigation').innerHTML = nav.map(([group, entries]) => `<div class="nav-group">${group ? `<span class="nav-label">${group}</span>` : ''}${entries.map(([id, symbol, label]) =>
     `<button class="nav-item${view === id && !isSearch ? ' active' : ''}" data-view="${id}">${svg(symbol)}<span class="nav-text">${label}</span>${counts[id] ? `<span class="count${id === 'updates' ? ' attention' : ''}">${counts[id]}</span>` : ''}</button>`).join('')}</div>`).join('');
   $('#preferences').classList.toggle('active', view === 'preferences' && !isSearch);
 }
@@ -171,9 +216,12 @@ function navigate(v, c = '') {
   clearTimeout(debounce);
   view = v; category = c; query = ''; $('#search').value = '';
   results = null; selected = null; generation++;
-  searching = false; searchWarning = ''; searchAnswer = ''; searchRecommendations = []; reasoningWarning = '';
+  searching = false; searchWarning = ''; searchAnswer = ''; searchRecommendations = []; searchReasons = new Map(); reasoningWarning = '';
   render();
   $('#content').scrollTop = 0;
+  const body = $('#body');
+  body.classList.remove('enter'); void body.offsetWidth; body.classList.add('enter');
+  if (v === 'chat') $('#chat-input')?.focus();
 }
 
 function renderContent() {
@@ -181,8 +229,14 @@ function renderContent() {
   renderNav();
   const isSearch = !!query.trim();
   const title = isSearch ? `Results for “${query}”` : titles[view] || titles.all;
-  $('#page-header').innerHTML = `<h1 title="${esc(title)}">${esc(title)}</h1>${view === 'all' && !isSearch ? `<button id="add-app" class="button subtle">${svg('plus')}Add app</button>` : ''}`;
-  if (isSearch || ['all', 'favorites', 'recent', 'settings'].includes(view)) renderLibrary();
+  $('#body').onclick = null;
+  const plain = !isSearch && (view === 'home' || view === 'chat');
+  $('#content').classList.toggle('chat-mode', !isSearch && view === 'chat');
+  $('#page-header').classList.toggle('hidden', !isSearch && view === 'home');
+  $('#page-header').innerHTML = `<h1 title="${esc(title)}">${esc(title)}</h1>${view === 'all' && !isSearch ? `<button id="add-app" class="button subtle">${svg('plus')}Add app</button>` : ''}${view === 'chat' && !isSearch && chat.length ? `<button id="new-chat" class="button subtle">${svg('plus')}New chat</button>` : ''}`;
+  if (plain && view === 'home') renderHome();
+  else if (plain) renderChat();
+  else if (isSearch || ['all', 'favorites', 'recent', 'settings'].includes(view)) renderLibrary();
   else if (view === 'updates') renderUpdates();
   else if (view === 'reproduce') renderReproduce();
   else if (view === 'activity') renderActivity();
@@ -190,6 +244,7 @@ function renderContent() {
   else if (view === 'discover') renderDiscover();
   renderDetails();
   $('#add-app')?.addEventListener('click', () => attempt(() => api.addApp()));
+  $('#new-chat')?.addEventListener('click', newChat);
 }
 
 function visibleItems() {
@@ -217,13 +272,16 @@ function answerEntries() {
 function renderAnswer() {
   if (!query || searching || !searchAnswer || state.prefs.aiEnabled === false) return '';
   const entries = answerEntries();
+  // With a reason for every entry, each recommendation gets its own row; otherwise show the answer text.
+  const listed = entries.length > 0 && entries.every(a => searchReasons.has(a.id));
   const actions = entries.map(a => {
     const busy = answerOpening.has(a.id);
     const open = a.launch ? `<button class="button primary" data-answer-open="${esc(a.id)}" ${a.unavailable ? 'disabled title="Reconnect the app’s folder, then sync your library"' : ''} ${busy ? 'aria-disabled="true" aria-busy="true"' : ''}>${busy ? 'Opening…' : 'Open ' + esc(a.name)}</button>` : '';
-    return `<div class="answer-actions">${open}<button class="button subtle" data-answer-inspect="${esc(a.id)}">${a.launch ? 'Details' : esc(a.name) + ' details'}</button></div>${a.unavailable ? '<small class="answer-unavailable">Folder unavailable · reconnect and sync to open.</small>' : ''}`;
+    const buttons = `<div class="answer-actions">${open}<button class="button subtle" data-answer-inspect="${esc(a.id)}">${a.launch ? 'Details' : esc(a.name) + ' details'}</button></div>${a.unavailable ? '<small class="answer-unavailable">Folder unavailable · reconnect and sync to open.</small>' : ''}`;
+    return listed ? `<div class="answer-row"><div class="answer-text"><strong>${esc(a.name)}</strong><span>${esc(searchReasons.get(a.id))}</span></div>${buttons}</div>` : buttons;
   }).join('');
   const stale = searchRecommendations.length && !entries.length ? '<small>This recommendation is no longer in your library. Search again.</small>' : '';
-  return `<section class="local-answer" aria-label="On-device answer"><div class="answer-label">Local AI answer</div><p>${esc(searchAnswer)}</p>${actions}${stale}</section>`;
+  return `<section class="local-answer" aria-label="On-device answer"><div class="answer-label">${listed && entries.length > 1 ? 'Local AI found ' + entries.length + ' options' : 'Local AI answer'}</div>${listed ? '' : `<p>${esc(searchAnswer)}</p>`}${actions}${stale}</section>`;
 }
 async function openAnswer(id) {
   const entry = answerEntries().find(a => a.id === id);
@@ -243,7 +301,7 @@ function inspectAnswer(id) {
 function selectCard(id) {
   selected = id;
   renderDetails();
-  $('#app-list')?.querySelectorAll('.app-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id));
+  document.querySelectorAll('.app-card').forEach(c => c.classList.toggle('selected', c.dataset.id === id));
 }
 function openDetails(id) { selectCard(id); focusDetails(); }
 // A card opens its app. Entries that cannot launch show their details instead.
@@ -303,7 +361,11 @@ function renderLibraryContent() {
   $('#sort')?.addEventListener('change', e => { sort = e.target.value; store('sort', sort); renderLibrary(); });
   $('#show-hidden')?.addEventListener('change', e => { showHidden = e.target.checked; renderLibrary(); });
 
-  const list = $('#app-list');
+  bindCards($('#app-list'));
+}
+
+// Click, right-click and keyboard behaviour shared by every group of app cards.
+function bindCards(list) {
   list.onclick = e => {
     const star = e.target.closest('[data-star]'), info = e.target.closest('[data-info]'), entry = e.target.closest('[data-id]');
     if (star) toggleStar(star.dataset.star);
@@ -336,7 +398,7 @@ function renderLibraryContent() {
 function card(a, layout) {
   const id = esc(a.id), name = esc(a.name), canOpen = a.launch && !a.unavailable;
   const classes = ['app-card', layout === 'list' ? 'row' : 'tile', selected === a.id && 'selected', a.unavailable && 'unavailable', a.hidden && 'is-hidden'].filter(Boolean).join(' ');
-  const attrs = `class="${classes}" data-id="${id}" tabindex="0" role="button" aria-label="${canOpen ? 'Open' : 'Details for'} ${name}"`;
+  const attrs = `class="${classes}" data-id="${id}" ${tintAttrs(a)} tabindex="0" role="button" aria-label="${canOpen ? 'Open' : 'Details for'} ${name}"`;
   const star = `<button class="icon-button star${a.favorite ? ' is-favorite' : ''}" data-star="${id}" aria-label="${a.favorite ? 'Unfavorite' : 'Favorite'} ${name}" title="${a.favorite ? 'Remove from favorites' : 'Add to favorites'}">${svg('star')}</button>`;
   const info = `<button class="icon-button info" data-info="${id}" aria-label="Details for ${name}" title="Details">${svg('dots')}</button>`;
   if (layout !== 'list') {
@@ -356,6 +418,7 @@ function renderDetails() {
   const draft = oldTags && oldTags === document.activeElement && oldTags.dataset.itemId === a?.id ? {value: oldTags.value, start: oldTags.selectionStart, end: oldTags.selectionEnd} : null;
   el.classList.toggle('hidden', !a);
   if (!a) return;
+  el.style.setProperty('--h', tint(a));
   const isCustom = a.source === 'Portable' && state.prefs.custom?.some(p => p.id === a.id);
   const rows = [
     ['Version', a.version], ['Publisher', a.publisher], ['Category', a.category],
@@ -380,7 +443,8 @@ function renderDetails() {
     const id = selected;
     selected = null;
     renderDetails();
-    $('#app-list')?.querySelectorAll('.app-card').forEach(c => { c.classList.remove('selected'); if (c.dataset.id === id) c.focus(); });
+    let returned = false;
+    document.querySelectorAll('.app-card').forEach(c => { c.classList.remove('selected'); if (c.dataset.id === id && !returned) { returned = true; c.focus(); } });
   };
   $('#launch').onclick = () => launch(a.id);
   $('#detail-star').onclick = () => toggleStar(a.id);
@@ -542,8 +606,9 @@ function renderPreferences() {
       `<button class="swatch${theme === t.id ? ' active' : ''}" role="radio" aria-checked="${theme === t.id}" data-theme-choice="${t.id}"><span class="swatch-preview${t.colors ? '' : ' system'}" style="${t.colors ? `background:${t.colors[0]};color:${t.colors[2]}` : ''}"><i style="${t.colors ? `background:${t.colors[1]}` : ''}"></i>Aa</span>${t.name}</button>`).join('')}</div>`
     + `<div class="accents" role="radiogroup" aria-label="Accent colour"><span>Accent</span>${ACCENTS.map(([id, label, color]) =>
       `<button class="accent-dot${accent === id ? ' active' : ''}" role="radio" aria-checked="${accent === id}" data-accent-choice="${id}" title="${label}" aria-label="${label}" style="background:${color}"></button>`).join('')}</div></div>`
-    + `<div class="panel"><h2>Local AI search</h2><p id="model-description">${esc(modelDescription())}</p>`
-    + `<label class="setting-row"><div><strong>Use local AI search</strong><small>Runs on the CPU. The interpretation model reads every search except an exact app name, which takes a few seconds. Both models unload 60 seconds after use.</small></div><input id="ai-toggle" class="switch" type="checkbox" ${state.prefs.aiEnabled !== false ? 'checked' : ''}></label>`
+    + `<div class="panel"><h2>Local AI</h2><p id="model-description">${esc(modelDescription())}</p>`
+    + `<label class="setting-row"><div><strong>Use local AI search</strong><small>The chat model reads every search except an exact app name, and powers Chat. Both models unload 60 seconds after use.</small></div><input id="ai-toggle" class="switch" type="checkbox" ${state.prefs.aiEnabled !== false ? 'checked' : ''}></label>`
+    + `<label class="setting-row"><div><strong>Use the graphics card</strong><small>Runs the chat model on the GPU through Vulkan, which is usually several times faster. If the GPU cannot load it, AppHub uses the CPU instead.</small></div><input id="gpu-toggle" class="switch" type="checkbox" ${state.prefs.gpu !== false ? 'checked' : ''}></label>`
     + runtimeRow('embedding') + runtimeRow('reasoning') + '</div>'
     + '<div id="local-models"></div>'
     + '<div class="panel"><h2>Library sources</h2><p>AppHub reads the Windows registry, Start menu, shortcuts, Store entries, WinGet and Steam. Add anything those miss.</p>'
@@ -557,6 +622,7 @@ function renderPreferences() {
   document.querySelectorAll('[data-theme-choice]').forEach(b => b.onclick = () => { theme = b.dataset.themeChoice; store('theme', theme); applyAppearance(); render(); });
   document.querySelectorAll('[data-accent-choice]').forEach(b => b.onclick = () => { accent = b.dataset.accentChoice; store('accent', accent); applyAppearance(); render(); });
   $('#ai-toggle').onchange = e => attempt(() => api.setAI(e.target.checked));
+  $('#gpu-toggle').onchange = e => attempt(() => api.setGpu(e.target.checked));
   $('#prefs-add').onclick = () => attempt(() => api.addApp());
   $('#prefs-folder').onclick = () => attempt(() => api.addFolder());
   $('#open-data').onclick = () => attempt(() => api.openData());
@@ -686,6 +752,159 @@ function updateModelRuntime() {
   }
 }
 
+// Home: ask box, live system gauges, favorites and recently opened apps.
+const ASK_EXAMPLES = ['What is using the most memory?', 'Which apps have updates?', 'How much disk space is free?', 'What starts with Windows?'];
+function refreshSystem() {
+  if (systemLoading || !api.system) return;
+  systemLoading = true;
+  api.system().then(info => { systemInfo = info; if (view === 'home' && !query) updateGauges(); }).catch(() => {}).finally(() => { systemLoading = false; });
+}
+function gauge(id, label, fraction, value, detail, ask) {
+  const known = Number.isFinite(fraction), p = known ? Math.max(0, Math.min(1, fraction)) : 0;
+  return `<button class="stat" data-gauge="${id}" data-ask="${esc(ask)}" title="Ask about this"><svg class="ring${p > .9 ? ' high' : ''}" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="24"/><circle class="ring-value" cx="30" cy="30" r="24" stroke-dasharray="${(p * 150.8).toFixed(1)} 150.8"/></svg>`
+    + `<span class="stat-text"><small>${label}</small><strong>${esc(value)}</strong><small>${esc(detail)}</small></span></button>`;
+}
+function gauges() {
+  const s = systemInfo;
+  if (!s) return ['Memory', 'Storage', 'Processor'].map(label => `<div class="stat loading"><svg class="ring" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="24"/></svg><span class="stat-text"><small>${label}</small><strong>…</strong><small>Reading</small></span></div>`).join('');
+  const used = s.memoryTotalGb - s.memoryFreeGb, disk = s.disks?.[0];
+  return gauge('memory', 'Memory', used / s.memoryTotalGb, Math.round(used / s.memoryTotalGb * 100) + '%', `${used.toFixed(1)} of ${Math.round(s.memoryTotalGb)} GB`, 'What is using the most memory right now?')
+    + (disk ? gauge('disk', 'Storage ' + disk.drive, 1 - disk.freeGb / disk.sizeGb, Math.round(disk.freeGb) + ' GB free', `of ${Math.round(disk.sizeGb)} GB`, 'How much disk space is free?') : '')
+    + gauge('cpu', 'Processor', s.cpuLoad == null ? NaN : s.cpuLoad / 100, s.cpuLoad == null ? '—' : s.cpuLoad + '%', s.byCpu?.[0] ? 'Top: ' + s.byCpu[0].name : 'Mostly idle', 'What is using the most CPU right now?');
+}
+function updateGauges() {
+  const host = $('#gauges');
+  if (!host) return;
+  // Update rings in place so they animate instead of being replaced.
+  if (!systemInfo || !host.querySelector('[data-gauge]')) { host.innerHTML = gauges(); return; }
+  const next = document.createElement('div');
+  next.innerHTML = gauges();
+  next.querySelectorAll('[data-gauge]').forEach(fresh => {
+    const old = host.querySelector(`[data-gauge="${fresh.dataset.gauge}"]`);
+    if (!old) return;
+    old.querySelector('.ring-value').setAttribute('stroke-dasharray', fresh.querySelector('.ring-value').getAttribute('stroke-dasharray'));
+    old.querySelector('.ring').setAttribute('class', fresh.querySelector('.ring').getAttribute('class'));
+    old.querySelector('.stat-text').innerHTML = fresh.querySelector('.stat-text').innerHTML;
+  });
+}
+function renderHome() {
+  const live = state.items.filter(a => !a.hidden);
+  const favorites = live.filter(a => a.favorite).sort((a, b) => a.name.localeCompare(b.name));
+  const recent = live.filter(a => a.lastLaunch).sort((a, b) => b.lastLaunch.localeCompare(a.lastLaunch)).slice(0, 12);
+  const updates = live.filter(a => a.available), apps = live.filter(a => a.kind === 'app');
+  const section = (title, items, link, emptyText) => `<section class="home-section"><div class="section-head"><h2>${title}</h2>${link && items.length ? `<button class="text-button" data-view="${link}">See all</button>` : ''}</div>`
+    + (items.length ? `<div class="grid card-host">${items.map(a => card(a, 'grid')).join('')}</div>` : `<p class="section-empty">${emptyText}</p>`) + '</section>';
+  const aiOff = state.prefs.aiEnabled === false || state.models?.active?.reasoning === 'off';
+  $('#body').innerHTML = [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('')
+    + `<section class="hero"><h1>${new Date().toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'})}</h1>`
+    + `<form id="ask-form" class="ask"><span class="ask-icon">${svg('spark')}</span><input id="ask-input" maxlength="2000" autocomplete="off" placeholder="${aiOff ? 'Chat is off — turn on local AI in Settings' : 'Ask about your apps or this PC'}" aria-label="Ask the local assistant" value="${esc(askDraft)}" ${aiOff ? 'disabled' : ''}><button class="send" aria-label="Ask" ${aiOff ? 'disabled' : ''}>${svg('arrow')}</button></form>`
+    + (aiOff ? '' : `<div class="chips ask-chips">${ASK_EXAMPLES.map(q => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`) + '</section>'
+    + `<section class="stats"><div id="gauges" class="gauge-row">${gauges()}</div>`
+    + `<button class="stat count-stat${updates.length ? ' attention' : ''}" data-view="updates"><strong>${updates.length}</strong><span class="stat-text"><small>Updates</small><small>${updates.length ? 'Review and install' : state.packageChecked ? 'All up to date' : 'Not checked yet'}</small></span></button>`
+    + `<button class="stat count-stat" data-view="all"><strong>${apps.length}</strong><span class="stat-text"><small>Apps</small><small>${state.scanning ? 'Syncing…' : 'Browse the library'}</small></span></button></section>`
+    + section('Favorites', favorites, 'favorites', 'Star an app to pin it here. Hover a tile and click the star.')
+    + section('Recently opened', recent, 'recent', 'Apps you open from AppHub show up here.');
+  document.querySelectorAll('#body .card-host').forEach(bindCards);
+  $('#ask-input').oninput = e => { askDraft = e.target.value; };
+  $('#ask-form').onsubmit = e => { e.preventDefault(); const text = askDraft; askDraft = ''; sendChat(text); };
+  $('#body').onclick = e => {
+    const ask = e.target.closest('[data-ask]'), go = e.target.closest('[data-view]');
+    if (ask && !ask.closest('.chat')) sendChat(ask.dataset.ask);
+    else if (go) navigate(go.dataset.view);
+  };
+  refreshSystem();
+  clearInterval(systemTimer);
+  systemTimer = setInterval(() => { if (view === 'home' && !query && !document.hidden) refreshSystem(); else if (view !== 'home') { clearInterval(systemTimer); systemTimer = null; } }, 20000);
+}
+
+// Chat: the model answers from the library and system snapshot; actions are buttons under its reply.
+const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Which apps have updates?', 'What do I have for editing video?', 'How full is my disk?', 'What starts with Windows?', 'How long has this PC been running?'];
+function chatSuggestions(m) {
+  const entries = (m.suggestions || []).map(s => item(s.id)).filter(a => a && !a.hidden);
+  if (!entries.length) return '';
+  return `<div class="suggestions">${entries.map(a => {
+    const id = esc(a.id), detail = a.available ? `${a.version || ''} → ${a.available}` : a.kind === 'setting' ? 'Windows setting' : a.publisher || a.category || '';
+    return `<div class="suggestion" ${tintAttrs(a)}>${icon(a)}<div class="suggestion-text"><strong>${esc(a.name)}</strong><small>${esc(detail)}</small></div>`
+      + (a.available ? `<button class="button subtle" data-chat-update="${id}">Update…</button>` : '')
+      + (a.launch ? `<button class="button primary" data-chat-open="${id}" ${a.unavailable ? 'disabled' : ''}>Open</button>` : '')
+      + `<button class="icon-button" data-chat-info="${id}" aria-label="Details for ${esc(a.name)}" title="Details">${svg('dots')}</button></div>`;
+  }).join('')}</div>`;
+}
+function chatMessage(m) {
+  if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
+  return `<div class="msg bot"><span class="avatar">${svg('spark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${chatSuggestions(m)}</div></div>`;
+}
+function renderChat() {
+  const log = $('#chat-log'), pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const off = state.prefs.aiEnabled === false ? 'Local AI is turned off.' : state.models?.active?.reasoning === 'off' ? 'No chat model is selected.' : '';
+  const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('spark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : '<span class="typing"><i></i><i></i><i></i></span>'}</div></div>` : '';
+  const empty = `<div class="chat-empty"><span class="avatar large">${svg('spark')}</span><h2>Ask about this PC</h2>`
+    + '<p>Chat runs on this PC. It can see your app library, available updates and live system information such as memory, storage, startup apps and running programs. It cannot see your files, and it cannot change anything: it answers, and offers buttons you can click.</p>'
+    + (off ? `<div class="notice warn">${off} <button class="text-button" data-view="preferences">Open Settings</button></div>` : `<div class="chips">${CHAT_EXAMPLES.map(q => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join('')}</div>`) + '</div>';
+  $('#body').innerHTML = `<div class="chat"><div class="chat-log" id="chat-log">${chat.length || chatBusy ? chat.map(chatMessage).join('') + pending : empty}</div>`
+    + `<form id="chat-form" class="composer"><textarea id="chat-input" rows="1" maxlength="2000" placeholder="Ask about your apps or this PC" aria-label="Message" ${off ? 'disabled' : ''}>${esc(chatDraft)}</textarea>`
+    + (chatBusy ? `<button type="button" id="chat-stop" class="send stop" aria-label="Stop" title="Stop">${svg('stop')}</button>` : `<button class="send" aria-label="Send" title="Send" ${off ? 'disabled' : ''}>${svg('send')}</button>`) + '</form>'
+    + `<small class="chat-note">${esc(modelName('reasoning'))} · ${state.reasoner?.device ? 'running on the ' + esc(state.reasoner.device) : 'on this PC'} · answers can be wrong, so check anything important</small></div>`;
+  const next = $('#chat-log');
+  if (pinned) next.scrollTop = next.scrollHeight;
+  const input = $('#chat-input');
+  const fit = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; };
+  fit();
+  input.oninput = () => { chatDraft = input.value; fit(); };
+  input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#chat-form').requestSubmit(); } };
+  $('#chat-form').onsubmit = e => { e.preventDefault(); if (!chatBusy) sendChat(chatDraft); };
+  $('#chat-stop')?.addEventListener('click', () => api.stopChat().catch(() => {}));
+  $('#body').onclick = e => {
+    const pick = name => e.target.closest(`[data-chat-${name}]`)?.dataset['chat' + name[0].toUpperCase() + name.slice(1)];
+    const ask = e.target.closest('[data-ask]'), go = e.target.closest('[data-view]');
+    if (pick('open')) launch(pick('open'));
+    else if (pick('update')) { const a = item(pick('update')); if (a?.available) reviewUpdates([a]); }
+    else if (pick('info')) openDetails(pick('info'));
+    else if (ask) sendChat(ask.dataset.ask);
+    else if (go) navigate(go.dataset.view);
+  };
+}
+function updateChatStream() {
+  const el = $('#chat-stream');
+  if (!el) return;
+  const log = $('#chat-log'), pinned = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  if (!el.nextElementSibling?.classList.contains('caret')) { el.nextElementSibling?.remove(); el.insertAdjacentHTML('afterend', '<i class="caret"></i>'); }
+  el.textContent = chatStream;
+  if (pinned) log.scrollTop = log.scrollHeight;
+}
+function newChat() {
+  if (chatBusy) api.stopChat().catch(() => {});
+  chatEpoch++; chat = []; chatBusy = false; chatStream = '';
+  render();
+  $('#chat-input')?.focus();
+}
+async function sendChat(text) {
+  text = String(text || '').trim();
+  if (!text || chatBusy) return;
+  const epoch = chatEpoch;
+  chat.push({role: 'user', content: text});
+  chatBusy = true; chatStream = ''; chatDraft = '';
+  if ($('#chat-input')) $('#chat-input').value = ''; // otherwise focus retention restores the sent text
+  if (view !== 'chat' || query) navigate('chat'); else render();
+  const log = $('#chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+  try {
+    const r = await api.chat(chat.filter(m => !m.error).map(({role, content}) => ({role, content})));
+    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
+  } catch (e) {
+    if (epoch !== chatEpoch) return;
+    const message = cleanError(e);
+    if (message !== 'Stopped') chat.push({role: 'assistant', content: '', error: message});
+    else if (chatStream) chat.push({role: 'assistant', content: chatStream, stopped: true});
+    else chat.pop();
+  } finally {
+    if (epoch === chatEpoch) {
+      chatBusy = false; chatStream = '';
+      if (view === 'chat' && !query) { render(); $('#chat-input')?.focus(); }
+    }
+  }
+}
+
 $('#modal').addEventListener('cancel', () => { modalGeneration++; });
 
 let debounce;
@@ -695,7 +914,7 @@ $('#search').oninput = () => {
   query = $('#search').value.trim();
   const seq = ++generation;
   searching = !!query.trim();
-  searchWarning = ''; searchAnswer = ''; searchRecommendations = []; reasoningWarning = '';
+  searchWarning = ''; searchAnswer = ''; searchRecommendations = []; searchReasons = new Map(); reasoningWarning = '';
   results = searching ? [] : null;
   selected = null;
   render();
@@ -713,7 +932,8 @@ $('#search').oninput = () => {
       results = r.items;
       searchWarning = r.warning || '';
       searchAnswer = typeof r.answer === 'string' ? r.answer : '';
-      searchRecommendations = Array.isArray(r.recommendations) ? [...new Set(r.recommendations.filter(id => typeof id === 'string'))].slice(0, 3) : [];
+      searchRecommendations = Array.isArray(r.recommendations) ? [...new Set(r.recommendations.filter(id => typeof id === 'string'))].slice(0, 4) : [];
+      searchReasons = new Map((Array.isArray(r.matches) ? r.matches : []).filter(m => m && typeof m.id === 'string' && typeof m.reason === 'string').map(m => [m.id, m.reason]));
       reasoningWarning = r.reasoningWarning || '';
       if (r.ai) state.ai = r.ai;
       if (r.reasoner) state.reasoner = r.reasoner;
@@ -754,6 +974,10 @@ document.addEventListener('keydown', e => {
 api.onChange(data => {
   if (data.searchPreview) {
     if (data.searchPreview.query === query && searching) { results = data.searchPreview.items; renderLibrary(); }
+    return;
+  }
+  if (data.chatDelta) {
+    if (chatBusy && typeof data.chatDelta.text === 'string') { chatStream = data.chatDelta.text; updateChatStream(); }
     return;
   }
   if (data.focusSearch) { $('#search').focus(); return; }

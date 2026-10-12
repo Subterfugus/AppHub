@@ -25,15 +25,21 @@ test('cancel abandons pending work without unloading and is safe when idle',asyn
  const sent=[];reasoner.worker={connected:true,send:m=>sent.push(m),disconnect(){}};
  const pending=new Promise((resolve,reject)=>reasoner.pending.set(1,{resolve,reject,timer:null}));
  reasoner.cancel();await assert.rejects(pending,/Search changed/);
- assert.deepEqual(sent,[{cancel:true}]);assert.equal(reasoner.pending.size,0);assert(reasoner.worker);
+ assert.deepEqual(sent,[{cancel:'search'}]);assert.equal(reasoner.pending.size,0);assert(reasoner.worker);
+ // A search cancel leaves a chat reply running, and the reverse.
+ const chat=new Promise((resolve,reject)=>reasoner.pending.set(2,{resolve,reject,timer:null,kind:'chat'}));
+ reasoner.cancel();assert.equal(reasoner.pending.size,1);assert.equal(sent.length,1);
+ reasoner.cancel('Stopped','chat');await assert.rejects(chat,/Stopped/);assert.deepEqual(sent[1],{cancel:'chat'});assert.equal(reasoner.pending.size,0);
  reasoner.worker=null;reasoner.stop();
 });
 test('stop before waking is safe and idempotent',()=>{
  const reasoner=new LocalReasoner({models:'unused',runtime:'unused'});
  reasoner.stop();reasoner.stop();assert.equal(reasoner.state.status,'sleeping');assert.equal(reasoner.state.pid,null);assert.equal(reasoner.pending.size,0);
 });
-test('first valid grounded match wins even after malformed or empty candidates',()=>{
+test('every valid grounded match is kept in order, up to four, skipping malformed entries',()=>{
  const candidates=[{id:'one',name:'Sound'},{id:'two',name:'Mixer'}];
  const result=validateAnswer({matches:[{id:'missing',reason:'Invalid'},{id:'one',reason:'  '},{id:'one',reason:'Adjust volume'},{id:'two',reason:'Weak extra'}]},candidates);
- assert.deepEqual(result.matches,[{id:'one',name:'Sound',reason:'Adjust volume'}]);
+ assert.deepEqual(result.matches,[{id:'one',name:'Sound',reason:'Adjust volume'},{id:'two',name:'Mixer',reason:'Weak extra'}]);
+ const many=Array.from({length:6},(_,i)=>({id:'c'+i,name:'App '+i}));
+ assert.equal(validateAnswer({matches:many.map(c=>({id:c.id,reason:'Fits'}))},many).matches.length,4);
 });

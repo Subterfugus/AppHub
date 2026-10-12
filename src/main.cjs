@@ -1,9 +1,10 @@
 const {app,BrowserWindow,ipcMain,shell,dialog,globalShortcut,nativeImage,Menu}=require('electron');
 const fs=require('node:fs');const path=require('node:path');
-const {Library,validatePackage,packageKey}=require('./library.cjs');const {LocalSearch}=require('./ai.cjs');const {rank,document}=require('./search.cjs');const {run,parseTable}=require('./platform.cjs');const {LocalReasoner,shouldInterpret,validateAnswer}=require('./reasoner.cjs');const {ModelStore}=require('./models.cjs');
+const {Library,validatePackage,packageKey}=require('./library.cjs');const {LocalSearch}=require('./ai.cjs');const {rank,document}=require('./search.cjs');const {run,parseTable}=require('./platform.cjs');const {LocalReasoner,shouldInterpret,validateAnswer}=require('./reasoner.cjs');const {ModelStore}=require('./models.cjs');const {SystemInfo}=require('./system.cjs');const {buildChat,resolveSuggestions}=require('./chat.cjs');
 app.setName('AppHub');app.setAppUserModelId('local.apphub.desktop');
 const {createWindowDelivery}=require('./window-delivery.cjs');
 const {createLogger,monitorMainErrors}=require('./diagnostics.cjs');
+const system=new SystemInfo();let chatSequence=0;
 let win,library,ai,reasoner,models,modelProbe,modelsRoot,runtimeRoot,dataRoot,lastSearchQuery='',searchSequence=0,importPlan=null,loadingIcons=false,iconTimer=null,shuttingDown=false;
 const logMain=createLogger(()=>dataRoot||app.getPath('userData'));monitorMainErrors(logMain);
 function reportMain(scope,error){try{logMain(scope,error);}catch{}}
@@ -14,7 +15,7 @@ function broadcast(data){windowDelivery.send(data);if(data.lastScan&&!loadingIco
 async function loadIcons(){if(loadingIcons||!library||shuttingDown||!windowDelivery.alive())return;loadingIcons=true;try{let changed=false;for(const a of library.state.apps){if(shuttingDown||!windowDelivery.alive())break;if(a.iconData)continue;const f=a.executable||(['exe','shortcut'].includes(a.launch?.type)?a.launch.target:null);if(!f||!fs.existsSync(f))continue;try{const icon=await app.getFileIcon(f,{size:'normal'});if(!icon.isEmpty()){a.iconData=icon.toDataURL();changed=true;}}catch(error){reportMain('icon-read',error);}}
 if(changed&&!shuttingDown&&windowDelivery.alive()){library.save('library.json',library.state);windowDelivery.send(library.snapshot());}}catch(error){reportMain('icon-refresh',error);}finally{loadingIcons=false;}}
 function handle(name,fn){ipcMain.handle('apphub:'+name,async(e,...args)=>{if(e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw new Error('Untrusted caller');return fn(...args);});}
-function configureEngines(){ai=new LocalSearch({models:modelsRoot,data:dataRoot,config:models.config('embedding'),onStatus:s=>broadcast({ai:s})});reasoner=new LocalReasoner({models:modelsRoot,runtime:runtimeRoot,config:models.config('reasoning')||{name:'Interpretation disabled'},onStatus:s=>broadcast({reasoner:s})});broadcast({ai:ai.state,reasoner:reasoner.state,models:models.snapshot()});}
+function configureEngines(){ai=new LocalSearch({models:modelsRoot,data:dataRoot,config:models.config('embedding'),onStatus:s=>broadcast({ai:s})});reasoner=new LocalReasoner({models:modelsRoot,runtime:runtimeRoot,config:{...(models.config('reasoning')||{name:'Interpretation disabled'}),gpu:library.prefs.gpu!==false},onStatus:s=>broadcast({reasoner:s})});broadcast({ai:ai.state,reasoner:reasoner.state,models:models.snapshot()});}
 function validateSearchModels(){if(models.validateActive()){ai.stop();reasoner.stop();configureEngines();models.validateActive();return models.warning;}}
 async function probeModel(profile,settings){
  if(profile.bytes>require('node:os').freemem()*.6)throw new Error('Not enough memory is free for a safe model check. Close other apps or choose a smaller model.');
@@ -33,17 +34,32 @@ async function start(){
   if(typeof query!=='string'||query.length>300)throw new Error('Search is too long');
   const seq=++searchSequence;if(query!==lastSearchQuery){lastSearchQuery=query;reasoner.cancel();if(ai.pending.size)ai.stop();}
   const items=library.all().filter(a=>!a.hidden);if(!query.trim())return {items,mode:'browse',ai:ai.state,reasoner:reasoner.state};
-  let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,recommendations=[],reasoningWarning=null,reasoning=false;
+  let scores={},warning=models.busy?'A model compatibility check is running':undefined,answer=null,recommendations=[],matches=[],reasoningWarning=null,reasoning=false;
   if(semantic&&library.prefs.aiEnabled&&!models.busy)try{warning=validateSearchModels()||warning;scores=await ai.search(query,items.map(a=>({id:a.id,text:document(a)})));}catch(e){warning=e.message;}
   let ranked=rank(query,items,scores);
   if(seq===searchSequence&&semantic&&library.prefs.aiEnabled&&!models.busy&&models.active.reasoning!=='off'&&ranked.length&&shouldInterpret(query,ranked)){
    broadcast({searchPreview:{query,items:ranked}});
-   try{warning=validateSearchModels()||warning;const candidates=ranked.slice(0,16).map(a=>({...a,searchText:document(a)}));const interpreted=validateAnswer(await reasoner.interpret(query,candidates),candidates);if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;recommendations=interpreted.matches.map(m=>m.id);reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
+   try{warning=validateSearchModels()||warning;const candidates=ranked.slice(0,16).map(a=>({...a,searchText:document(a)}));const interpreted=validateAnswer(await reasoner.interpret(query,candidates),candidates);if(seq===searchSequence&&library.prefs.aiEnabled){answer=interpreted.answer;recommendations=interpreted.matches.map(m=>m.id);matches=interpreted.matches;reasoning=true;const order=new Map(interpreted.matches.map((m,i)=>[m.id,i]));ranked.sort((a,b)=>(order.get(a.id)??99)-(order.get(b.id)??99));}}
    catch(e){if(seq===searchSequence)reasoningWarning=e.message;}
   }
   if(seq===searchSequence&&ai.worker&&!ai.pending.size)ai.arm();
-  return {items:ranked,mode:Object.keys(scores).length?'semantic':'keyword',warning,answer,recommendations,reasoning,reasoningWarning,ai:ai.state,reasoner:reasoner.state};
+  return {items:ranked,mode:Object.keys(scores).length?'semantic':'keyword',warning,answer,recommendations,matches,reasoning,reasoningWarning,ai:ai.state,reasoner:reasoner.state};
  });
+ // Chat reads the library and a read-only system snapshot. The model can only name entries; every action is a button the user clicks.
+ handle('chat',async messages=>{
+  if(!library.prefs.aiEnabled)throw new Error('Local AI is turned off in Settings');if(models.busy)throw new Error('Wait for the model check to finish');if(models.active.reasoning==='off')throw new Error('Choose a chat model in Settings to use chat');
+  if(!Array.isArray(messages)||!messages.length||messages.length>40)throw new Error('Start a new chat');
+  const turns=messages.map(m=>({role:m?.role==='assistant'?'assistant':'user',content:String(m?.content??'').slice(0,2000)})).filter(m=>m.content.trim());const last=turns[turns.length-1];if(!last||last.role!=='user')throw new Error('Type a message first');
+  const seq=++chatSequence;validateSearchModels();const items=library.all().filter(a=>!a.hidden);let scores={};
+  const [info]=await Promise.all([system.snapshot(),ai.search(last.content.slice(0,300),items.map(a=>({id:a.id,text:document(a)}))).then(s=>{scores=s;},()=>{})]);if(ai.worker&&!ai.pending.size)ai.arm();
+  if(seq!==chatSequence)throw new Error('Stopped');
+  const request=buildChat({turns,items,related:rank(last.content.slice(0,300),items,scores).slice(0,12),system:info,context:reasoner.config.context||4096});
+  const result=await reasoner.chat(request.chat,text=>{if(seq===chatSequence)broadcast({chatDelta:{seq,text}});});
+  return {seq,reply:result.reply,suggestions:resolveSuggestions(result.suggest,request.entries,result.reply)};
+ });
+ handle('stopChat',()=>{chatSequence++;reasoner.cancel('Stopped','chat');return {ok:true};});
+ handle('system',()=>system.snapshot());
+ handle('setGpu',enabled=>{if(models.busy)throw new Error('Wait for the model check to finish');library.prefs.gpu=!!enabled;library.save('preferences.json',library.prefs);searchSequence++;chatSequence++;ai.stop();reasoner.stop();configureEngines();library.notify();return {ok:true};});
  handle('cancelSearch',()=>{searchSequence++;if(ai.pending.size)ai.stop();reasoner.cancel();return {ok:true};});
  handle('addModel',async role=>{if(!['embedding','reasoning'].includes(role))throw new Error('Unknown model role');if(models.busy)throw new Error('Wait for the model check to finish');const result=await dialog.showOpenDialog(win,{title:role==='reasoning'?'Choose a local GGUF chat model':'Choose a local ONNX embedding model folder',...(role==='reasoning'?{filters:[{name:'GGUF model',extensions:['gguf']}]}:{}),properties:[role==='reasoning'?'openFile':'openDirectory']});if(result.canceled)return null;return models.add(role,result.filePaths[0]);});
  handle('activateModel',async(role,id,limits={})=>{if(models.busy)throw new Error('Wait for the model check to finish');searchSequence++;ai.stop();reasoner.stop();try{return await models.activate(role,id,limits);}finally{configureEngines();}});

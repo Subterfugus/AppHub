@@ -8,4 +8,4 @@ The Windows Package Manager client and installed third-party applications are no
 
 Qwen3-4B-GGUF Q4_K_M is bundled unmodified from https://huggingface.co/Qwen/Qwen3-4B-GGUF at revision bc640142c66e1fdd12af0bd68f40445458f3869b (Apache-2.0). Model SHA256: 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5. Its license accompanies models/Qwen.
 
-llama.cpp CPU runtime b11552 is bundled from https://github.com/ggml-org/llama.cpp/releases/tag/b11552 (MIT); LICENSE and the LLVM OpenMP notice accompany runtime. The official Windows CPU archive SHA256 is c00741179811ff903b515eae28bdeef1f47af6e81c49920c4e68b62954e056d6. Only the inference server and necessary DLLs are redistributed.
+llama.cpp Vulkan runtime b11552 (GPU acceleration with the CPU backends included) is bundled from https://github.com/ggml-org/llama.cpp/releases/tag/b11552 (MIT); LICENSE and the LLVM OpenMP notice accompany runtime. The official Windows Vulkan x64 archive SHA256 is 83dc16325b532ba603034719e8377e28ca5093c5d4370141a6522f1a0250386c. Only the inference server and necessary DLLs are redistributed.
