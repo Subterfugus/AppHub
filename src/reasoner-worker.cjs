@@ -1,6 +1,6 @@
 // This guardian owns the native model process and kills it if AppHub disconnects.
 const {spawn}=require('node:child_process');const path=require('node:path');const net=require('node:net');const crypto=require('node:crypto');const fs=require('node:fs');
-const {validateAnswer}=require('./reasoner.cjs');
+const {validateAnswer,withoutRepeats}=require('./reasoner.cjs');
 const config=JSON.parse(process.env.APPHUB_REASONER_CONFIG||'{}'),modelName=config.name||'Qwen3 4B';
 let server,ready,queue=Promise.resolve(),closing=false,base,key,current,device='CPU';const epochs={search:0,chat:0};
 const superseded=()=>Object.assign(new Error('Search changed'),{superseded:true});
@@ -23,19 +23,17 @@ async function start(){if(ready)return ready;ready=(async()=>{
  if(config.gpu!==false){try{await launch(true);}catch(e){if(closing)throw e;send({status:'loading',message:'GPU start failed · loading '+modelName+' on the CPU…'});await launch(false);}}else await launch(false);
  send({status:'ready',message:readyMessage(),device});
  })();return ready;}
-// Small models sometimes loop on a sentence until the token limit. This keeps each sentence once and reports whether a loop was seen.
-function withoutRepeats(text){const parts=String(text).match(/[^.!?\n]+[.!?]*\s*|\n+/g)||[],seen=new Map(),out=[];let looping=false;for(const part of parts){const key=part.trim().toLowerCase();if(key.length<25){out.push(part);continue;}const n=(seen.get(key)||0)+1;seen.set(key,n);if(n===1)out.push(part);else if(n>=3)looping=true;}return {text:out.join('').trim(),looping};}
 function partialReply(raw){const m=/^\s*\{\s*"reply"\s*:\s*"/.exec(raw);if(!m)return '';let i=m[0].length,end=i;for(;end<raw.length;end++){if(raw[end]==='\\'){end++;continue;}if(raw[end]==='"')break;}let body=raw.slice(i,Math.min(end,raw.length));for(let cut=0;cut<7;cut++){try{return JSON.parse('"'+body+'"');}catch{body=body.slice(0,-1);}}return '';}
 // Chat streams a JSON object whose first field is the reply, so the text can be shown as it is written.
 async function chat(m,mine){await start();if(mine!==epochs.chat)throw superseded();current={kind:'chat',controller:new AbortController()};const c=m.chat,labels=c.labels||[];send({status:'thinking',message:modelName+' is writing a reply…'});
  const schema={type:'object',properties:{reply:{type:'string'},...(labels.length?{suggest:{type:'array',maxItems:4,items:{type:'string',enum:labels}}}:{})},required:labels.length?['reply','suggest']:['reply'],additionalProperties:false};
  const response=await fetch(base+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},signal:AbortSignal.any([AbortSignal.timeout(170000),current.controller.signal]),body:JSON.stringify({model:'local-model',messages:[{role:'system',content:c.system+' /no_think'},...c.messages],temperature:0.3,repeat_penalty:1.08,repeat_last_n:256,max_tokens:c.maxTokens||500,stream:true,chat_template_kwargs:{enable_thinking:false},response_format:{type:'json_schema',json_schema:{name:'chat_reply',strict:true,schema}}})});
  if(!response.ok)throw new Error(response.status===400?'This conversation is too long for the model. Start a new chat.':'Local chat failed ('+response.status+')');
- let raw='',buffer='',shown='',last=0,looped=false;const decoder=new TextDecoder();try{for await(const chunk of response.body){buffer+=decoder.decode(chunk,{stream:true});let at;while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at).trim();buffer=buffer.slice(at+1);if(!line.startsWith('data:'))continue;const data=line.slice(5).trim();if(data==='[DONE]')continue;try{raw+=JSON.parse(data).choices?.[0]?.delta?.content||'';}catch{}}
+ let raw='',buffer='',shown='',last=0,looped=false,finish='';const decoder=new TextDecoder();try{for await(const chunk of response.body){buffer+=decoder.decode(chunk,{stream:true});let at;while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at).trim();buffer=buffer.slice(at+1);if(!line.startsWith('data:'))continue;const data=line.slice(5).trim();if(data==='[DONE]')continue;try{const choice=JSON.parse(data).choices?.[0];raw+=choice?.delta?.content||'';if(choice?.finish_reason)finish=choice.finish_reason;}catch{}}
   if(Date.now()-last>50){const seen=withoutRepeats(partialReply(raw)),text=seen.text;if(text!==shown){shown=text;last=Date.now();send({id:m.id,delta:text});}if(seen.looping){looped=true;current.controller.abort();break;}}}
  }catch(e){if(!looped)throw e;}
  let reply=partialReply(raw),suggest=[];try{const parsed=JSON.parse(raw);if(typeof parsed.reply==='string')reply=parsed.reply;if(Array.isArray(parsed.suggest))suggest=[...new Set(parsed.suggest.filter(x=>labels.includes(x)))];}catch{}
- reply=withoutRepeats(reply).text;if(!reply)throw new Error('The local model returned an empty reply');send({id:m.id,result:{reply,suggest},status:'ready',message:readyMessage()});
+ reply=withoutRepeats(reply).text;if(!reply)throw new Error('The local model returned an empty reply');send({id:m.id,result:{reply,suggest,truncated:finish==='length'&&!looped},status:'ready',message:readyMessage()});
 }
 // Routing is one short constrained call that picks which lookups a chat question needs.
 async function route(m,mine){await start();if(mine!==epochs.chat)throw superseded();current={kind:'chat',controller:new AbortController()};const p=m.plan;send({status:'thinking',message:modelName+' is deciding what to look up…'});

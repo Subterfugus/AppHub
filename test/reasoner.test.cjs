@@ -43,3 +43,11 @@ test('every valid grounded match is kept in order, up to four, skipping malforme
  const many=Array.from({length:6},(_,i)=>({id:'c'+i,name:'App '+i}));
  assert.equal(validateAnswer({matches:many.map(c=>({id:c.id,reason:'Fits'}))},many).matches.length,4);
 });
+
+test('replies are left exactly as written unless one long sentence loops',()=>{
+ const {withoutRepeats}=require('../src/reasoner.cjs');
+ const list='Here is the list:\n\n1. .NET Runtime - 1 error: a profiling problem at 4.1 GB.\n2. Is it serious? No... not really!\n- Proton VPN (ProtonVPN.Launcher.exe): starts with Windows for this user.\n- Spotify (Spotify.exe): starts with Windows for this user.\n- Steam (steam.exe): starts with Windows for this user.\nYou can turn these off in Settings. You can turn these off in Settings.';
+ assert.deepEqual(withoutRepeats(list),{text:list,looping:false});assert.deepEqual(withoutRepeats('  Short. Short. Short. Short.  '),{text:'Short. Short. Short. Short.',looping:false});
+ const loop='No updates are available. If you need to check manually, open Settings and look under Windows Update.';
+ assert.deepEqual(withoutRepeats(loop+' If you need to check manually, open Settings and look under Windows Update. If you need to check manually, open Settings and look under Windows Update. If you need'),{text:loop,looping:true});
+});

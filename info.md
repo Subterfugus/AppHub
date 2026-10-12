@@ -2,6 +2,13 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.6.1 — 2026-10-12
+
+- Chat replies are no longer shortened or altered. The repetition guard added in 1.6.0 removed any sentence it had seen before, dropped a leading full stop (".NET Runtime" became "NET Runtime") and split on decimal points. It now leaves a reply exactly as written and acts only when one long sentence appears three times, cutting at the point the repetition began.
+- The reply limit is 900 tokens with the default 8192 context (500 with a smaller one), up from 450, so detailed answers finish.
+- A reply that does reach the limit says so under the text instead of ending without explanation.
+- Validation: 94 unit tests, 17 hidden renderer checks and 22 full hidden Electron integration checks passed. A long event-log answer that previously stopped mid-list was rerun on Qwen3 8B and completed.
+
 ## 1.6.0 — 2026-10-12
 
 - Chat looks things up for the question it is asked. Eleven read-only lookups are available: running programs, services, folder sizes, network status, recent crashes and errors, Windows Update history, battery health, installed app sizes, startup entries, hardware details and the WinGet catalog. Keywords choose them; the model chooses when none match. The reply lists what was checked.

@@ -54,7 +54,8 @@ function buildChat({turns,items,related=[],system,lookups=[],context=8192}){
   ...(extra.length?['OTHER BUTTONS\n'+extra.map(o=>o.label).join('; ')]:[])];
  const systemText=rules+'\n\n'+sections.join('\n\n');
  // Keep the newest turns that fit: roughly three characters per token, leaving room for the reply.
- const maxTokens=450;let budget=Math.max(600,(context-maxTokens-200)*3-systemText.length);const messages=[];
+ // Room for a detailed answer; at about three characters per token this is roughly 2,700 characters.
+ const maxTokens=context>=8192?900:500;let budget=Math.max(600,(context-maxTokens-200)*3-systemText.length);const messages=[];
  for(let i=turns.length-1;i>=0;i--){const content=turns[i].content.slice(0,i===turns.length-1?2000:900);if(messages.length&&content.length>budget)break;budget-=content.length;messages.unshift({role:turns[i].role,content});}
  while(messages.length>1&&messages[0].role!=='user')messages.shift();
  const all=[...options,...extra];

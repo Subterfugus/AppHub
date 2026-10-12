@@ -64,7 +64,7 @@ async function start(){
   if(seq!==chatSequence)throw new Error('Stopped');
   const looked=found.filter(Boolean),request=buildChat({turns,items,related:rank(last.content.slice(0,300),items,scores).slice(0,12),system:info,lookups:looked,context});status('');
   const result=await chatter.chat(request.chat,text=>{if(seq===chatSequence)broadcast({chatDelta:{seq,text}});});
-  return {seq,reply:result.reply,looked:looked.map(l=>l.title),suggestions:resolveSuggestions(result.suggest,request.options,result.reply,request.updates)};
+  return {seq,reply:result.reply,truncated:!!result.truncated,looked:looked.map(l=>l.title),suggestions:resolveSuggestions(result.suggest,request.options,result.reply,request.updates)};
  });
  handle('stopChat',()=>{chatSequence++;chatter.cancel('Stopped','chat');return {ok:true};});
  handle('system',()=>system.snapshot());

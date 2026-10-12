@@ -931,7 +931,7 @@ function chatAct(index, i, verb) {
 }
 function chatMessage(m, index) {
   if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
-  return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}`
+  return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${m.truncated ? '<small class="stopped">Reached the length limit for one reply. Ask it to continue.</small>' : ''}`
     + `${m.looked?.length ? `<small class="looked">Checked ${esc(m.looked.join(', '))}</small>` : ''}${chatSuggestions(m, index)}</div></div>`;
 }
 function renderChat() {
@@ -996,7 +996,7 @@ async function sendChat(text) {
   if (log) log.scrollTop = log.scrollHeight;
   try {
     const r = await api.chat(chat.filter(m => !m.error).map(({role, content}) => ({role, content})));
-    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), looked: Array.isArray(r.looked) ? r.looked : [], suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
+    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), truncated: !!r.truncated, looked: Array.isArray(r.looked) ? r.looked : [], suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
   } catch (e) {
     if (epoch !== chatEpoch) return;
     const message = cleanError(e);

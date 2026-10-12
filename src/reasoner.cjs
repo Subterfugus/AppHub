@@ -8,6 +8,13 @@ function validateAnswer(value,candidates){
  for(const m of value.matches.slice(0,20)){if(!m||!known.has(m.id)||seen.has(m.id)||typeof m.reason!=='string')continue;const reason=m.reason.replace(/[\r\n\t]+/g,' ').trim().slice(0,220);if(reason){seen.add(m.id);matches.push({id:m.id,name:known.get(m.id).name,reason});if(matches.length===4)break;}}
  return {matches,answer:matches.length?matches.map(m=>`${m.name}: ${m.reason}`).join('\n'):'I could not identify a confident match in the retrieved library entries. Try describing the task another way.'};
 }
+// Small models sometimes loop on one sentence until the token limit. A reply is left exactly as written unless a long sentence
+// appears three times; then it is cut where the repetition began.
+function withoutRepeats(text){
+ const s=String(text),seen=new Map(),sentence=/[^\n]+?(?:[.!?](?=\s)|$|(?=\n))/g;let m;
+ while((m=sentence.exec(s))){const key=m[0].trim().toLowerCase();if(key.length<40)continue;const hit=seen.get(key)||{count:0,second:-1};hit.count++;if(hit.count===2)hit.second=m.index;seen.set(key,hit);if(hit.count>=3)return {text:s.slice(0,hit.second).trim(),looping:true};}
+ return {text:s.trim(),looping:false};
+}
 class LocalReasoner{
  constructor({models,runtime,onStatus=()=>{},idleMs=60000,config={}}){Object.assign(this,{models,runtime,onStatus,idleMs,config});this.counter=0;this.pending=new Map();this.state={status:'sleeping',message:(config.name||'Qwen3 4B')+' asleep · wakes when you search',pid:null,serverPid:null,device:null,model:config.name||'Qwen3 4B',idleSeconds:60};}
  publish(patch){this.state={...this.state,...patch};this.onStatus(this.state);}
@@ -25,4 +32,4 @@ class LocalReasoner{
  plan(plan){clearTimeout(this.timer);this.start();this.publish({unloadAt:null});return new Promise((resolve,reject)=>{const id=++this.counter;const timer=setTimeout(()=>this.stop('Local chat timed out'),120000);this.pending.set(id,{resolve,reject,timer,kind:'chat'});this.worker.send({id,plan});});}
  stop(reason='Local interpretation stopped'){clearTimeout(this.timer);const w=this.worker;this.worker=null;if(w?.connected){try{w.send({shutdown:true},()=>{});w.disconnect();}catch{w.kill();}}for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error(reason));}this.pending.clear();this.publish({status:'sleeping',message:this.state.model+' asleep · memory released',pid:null,serverPid:null,device:null,unloadAt:null});}
 }
-module.exports={LocalReasoner,shouldInterpret,validateAnswer};
+module.exports={LocalReasoner,shouldInterpret,validateAnswer,withoutRepeats};
