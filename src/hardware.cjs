@@ -31,9 +31,12 @@ Read-Section 'logical' {
 }
 Read-Section 'network' {
  $rates=@(Cim 'Win32_PerfFormattedData_Tcpip_NetworkInterface')
- @(Cim 'Win32_NetworkAdapter'|Where-Object {$_.PhysicalAdapter -and $_.NetConnectionStatus -ne $null}|ForEach-Object {
-  $description=$_.Description;$normalized=$description.Replace('(','[').Replace(')',']').Replace('#','_');$r=@($rates|Where-Object {$_.Name -eq $normalized -or $_.Name -eq $description})
-  @{index=$_.Index;name=$description;linkSpeedBitsPerSecond=$_.Speed;status=if($_.NetConnectionStatus -eq 2){'connected'}else{'disconnected'};receiveBytesPerSecond=if($r.Count -eq 1){$r[0].BytesReceivedPersec}else{$null};sendBytesPerSecond=if($r.Count -eq 1){$r[0].BytesSentPersec}else{$null}}
+ $adapters=@()
+ try {$adapters=@(Get-NetAdapter -ErrorAction Stop|Where-Object {$_.Status -ne 'Not Present' -and ($_.HardwareInterface -or $_.Status -eq 'Up')}|ForEach-Object {@{index=$_.ifIndex;description=$_.InterfaceDescription;speed=$_.TransmitLinkSpeed;connected=$_.Status -eq 'Up'}})}catch{}
+ if(!$adapters.Count){$adapters=@(Cim 'Win32_NetworkAdapter'|Where-Object {$_.PhysicalAdapter -and $_.NetConnectionStatus -ne $null}|ForEach-Object {@{index=$_.Index;description=$_.Description;speed=$_.Speed;connected=$_.NetConnectionStatus -eq 2}})}
+ @($adapters|ForEach-Object {
+  $description=$_.description;$normalized=$description.Replace('(','[').Replace(')',']').Replace('#','_').Replace('/','_').Replace('\','_');$r=@($rates|Where-Object {$_.Name -eq $normalized -or $_.Name -eq $description})
+  @{index=$_.index;name=$description;linkSpeedBitsPerSecond=$_.speed;status=if($_.connected){'connected'}else{'disconnected'};receiveBytesPerSecond=if($r.Count -eq 1){$r[0].BytesReceivedPersec}else{$null};sendBytesPerSecond=if($r.Count -eq 1){$r[0].BytesSentPersec}else{$null}}
  })
 }
 Read-Section 'battery' { $b=@(Cim 'Win32_Battery');if($b.Count){$b=$b[0];@{present=$true;chargePercent=$b.EstimatedChargeRemaining;status=$b.BatteryStatus;remainingMinutes=if($b.EstimatedRunTime -lt 6000){$b.EstimatedRunTime}else{$null}}}else{@{present=$false;chargePercent=$null;status=$null;remainingMinutes=$null}} }

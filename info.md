@@ -4,6 +4,7 @@ Record user-visible behavior, relevant fixes and validation here for every relea
 
 ## 1.7.0 — 2026-10-12
 
+- Follow-up network fix: prefer modern Windows adapter discovery so active Wi-Fi adapters omitted by the legacy query still expose download/upload and link-speed readings. Keep the legacy query as a fallback. Verified against the active adapter and 11 focused hardware/lookup tests.
 - Added a separate Hardware page with live CPU/per-core, memory/commit, GPU/VRAM, storage, network, battery, process and component details; visible-only refresh and session history graphs. Ask AI uses the same hardware collector. Unsupported temperature/fan sources are explicitly unavailable.
 - Chat now exposes timestamped Sources & facts, cached/unavailable/partial status and the exact bounded facts supplied to the model. Refresh recollects the latest reply's evidence and answers again.
 - Chat can use an independently selected registered GGUF model, including custom models, while Search retains its own configuration. Failed activation restores the previous selection.
