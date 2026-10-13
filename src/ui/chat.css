@@ -1,0 +1,50 @@
+/* Chat */
+.content.chat-mode { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 14px; }
+.chat-mode #body { flex: 1; min-height: 0; }
+.chat { display: flex; flex-direction: column; height: 100%; max-width: 780px; margin: 0 auto; }
+.chat-log { flex: 1; min-height: 0; overflow: auto; padding: 4px 4px 20px; display: flex; flex-direction: column; gap: 20px; }
+.msg { display: flex; gap: 12px; max-width: 100%; }
+.msg.user { justify-content: flex-end; }
+.bubble { min-width: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.user .bubble { max-width: 80%; padding: 8px 14px; border-radius: var(--r-3); border-bottom-right-radius: 4px; background: var(--surface-2); }
+.bot .bubble { flex: 1; padding-top: 3px; }
+.bubble.error { color: var(--danger); }
+.stopped { display: block; margin-top: 4px; }
+.avatar .ico { width: 18px; height: 18px; }
+.avatar { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 8px; background: var(--surface-2); color: var(--accent-fg); }
+.avatar.working { animation: working 1.2s ease-in-out infinite; }
+@keyframes working { 50% { opacity: .45; } }
+.caret { display: inline-block; width: 2px; height: 16px; margin-left: 2px; vertical-align: -3px; background: var(--text-2); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.typing { color: var(--text-3); }
+.looked { display: block; margin-top: 8px; color: var(--text-3); white-space: normal; }
+.sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; white-space: normal; font-size: 12px; color: var(--text-3); }
+.sources > span { margin-right: 2px; }
+.source { height: 22px; padding: 0 9px; border-radius: 11px; border: 1px solid var(--line); background: transparent; color: var(--text-2); font-size: 12px; transition: background .12s, border-color .12s; }
+.source:hover { background: var(--pressed); }
+.source[aria-expanded=true] { border-color: var(--accent-fg); color: var(--text); background: var(--accent-soft); }
+.source.missing { border-style: dashed; color: var(--text-3); }
+.sources .icon-button { width: 22px; height: 22px; }
+.sources .icon-button .ico { width: 13px; height: 13px; }
+.source-detail { margin-top: 8px; padding: 10px 12px; border-radius: var(--r-1); background: var(--bg); border: 1px solid var(--line); white-space: normal; }
+.source-detail > small { display: block; margin-bottom: 6px; color: var(--text-3); }
+.source-text { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.55; color: var(--text-2); }
+
+.suggestion .pill { flex-shrink: 0; }
+.suggestions { display: flex; flex-direction: column; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); white-space: normal; }
+.suggestion { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; }
+.suggestion + .suggestion { border-top: 1px solid var(--line); }
+.suggestion-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
+.suggestion-text strong, .suggestion-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion .button { height: 28px; }
+.chat-empty { margin: auto 0; padding: 24px 0; }
+.chat-empty h2 { margin-bottom: 6px; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+.chat-empty p { max-width: 520px; margin-bottom: 20px; color: var(--text-2); line-height: 1.6; }
+.examples { display: flex; flex-direction: column; max-width: 520px; border-top: 1px solid var(--line); }
+.example { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); color: var(--text-2); text-align: left; transition: color .12s, padding .15s var(--ease); }
+.example .ico { color: var(--text-3); opacity: 0; transition: opacity .12s; }
+.example:hover { color: var(--text); padding-left: 6px; }
+.example:hover .ico { opacity: 1; }
+.composer { align-items: flex-end; padding: 6px 6px 6px 14px; }
+.composer textarea { flex: 1; min-width: 0; max-height: 140px; padding: 6px 0; border: 0; outline: none; resize: none; background: none; color: var(--text); font: 14px/1.45 var(--font); }
+.chat-note { margin-top: 8px; text-align: center; }

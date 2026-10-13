@@ -2,6 +2,13 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.10.0 — 2026-10-12
+
+- New Startup page: every entry that starts with Windows, with a switch for those registered to your account. All-user entries are listed with their state and a link to Windows startup settings. Chat's Disable button uses the same mechanism as before.
+- Warnings can be dismissed with a close button. A dismissed warning returns after a restart or when its text changes.
+- The window's code is reorganised with no change in behaviour: the single script and stylesheet are now one file per area (home, hardware, chat, updates, and so on), loaded in the same order as before.
+- Validation: 141 unit tests, 32 hidden renderer checks and 23 full hidden Electron integration checks passed, including reading this PC's real startup entries. Switching a real startup entry was not exercised; the switch was tested against a synthetic list, including a refused change.
+
 ## 1.9.0 — 2026-10-12
 
 - Home is redesigned. A header carries the date, the ask box and four suggested questions. Favorites and recently opened apps sit on the left; recent apps show when each was last opened. A side column shows update and app counts and a This PC panel.

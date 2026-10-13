@@ -1,0 +1,16 @@
+/* Entrances: one short fade when a page opens. */
+#body.enter { animation: page .2s var(--ease); }
+@keyframes page { from { opacity: 0; transform: translateY(6px); } }
+
+@media (max-width: 1150px) {
+  .sidebar { width: 196px; }
+  .brand { width: 196px; }
+  .content { padding: 20px 24px 24px; }
+  footer { padding-left: 24px; }
+  .row { grid-template-columns: 32px minmax(140px, 2fr) minmax(0, 1.2fr) 62px 26px 26px; }
+  .row .version, .row .source { display: none; }
+  .shortcut { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

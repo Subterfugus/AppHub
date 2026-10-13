@@ -1,0 +1,17 @@
+/* Startup */
+.startup { max-width: 820px; }
+.startup-head { display: flex; align-items: center; gap: 12px; min-height: 32px; margin-bottom: 14px; }
+.startup-head p { flex: 1; min-width: 0; color: var(--text-2); }
+.startup-list { padding: 4px 20px; }
+.startup-row { display: flex; align-items: center; gap: 14px; padding: 11px 0; }
+.startup-row + .startup-row { border-top: 1px solid var(--line); }
+.startup-row > .app-icon { border-radius: 8px; background: var(--plate); }
+.startup-row > .app-icon.fallback { background: var(--letter-bg); }
+.startup-row > div { flex: 1; min-width: 0; }
+.startup-row strong, .startup-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.startup-row strong { font-weight: 600; }
+.startup-row small { min-height: 17px; color: var(--text-3); font-size: 12px; }
+.startup-row.off > .app-icon { opacity: .5; }
+.startup-row.off strong { font-weight: 400; color: var(--text-2); }
+.startup-fixed { flex-shrink: 0; color: var(--text-3); font-size: 12px; }
+.startup .footnote .text-button { font-size: 12px; }
