@@ -212,10 +212,10 @@ class HardwareMonitor {
   this.pending=this.collect().then(value=>{this.cached={at:this.now(),value};return value;}).finally(()=>{this.pending=null;});return this.pending;
  }
  // For the live view: answers at once with fresh CPU and memory, plus the newest Windows counters. Those are refreshed in the
- // background when they are older than liveMs, so the caller can poll every second without starting a query every second.
- async live() {
+ // background when they are older than maxAge, so the caller can poll every second without starting a query every second.
+ async live(maxAge=this.liveMs) {
   if(!this.cached)return this.snapshot();
-  if(!this.pending&&this.now()-this.cached.at>=this.liveMs)this.snapshot({force:true}).catch(()=>{});
+  if(!this.pending&&this.now()-this.cached.at>=maxAge)this.snapshot({force:true}).catch(()=>{});
   const base=this.cached.value,fast=this.fast(this.previousCpus);if(!fast)return base;
   return {...base,capturedAt:iso(this.now()),countersCapturedAt:base.countersCapturedAt||base.capturedAt,cpu:{...base.cpu,utilizationPercent:fast.utilizationPercent,cores:base.cpu.cores.map((c,i)=>({...c,utilizationPercent:fast.cores[i]??c.utilizationPercent}))},memory:{...base.memory,...fast.memory}};
  }

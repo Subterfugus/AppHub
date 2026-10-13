@@ -92,7 +92,7 @@ async function start(){
  handle('stopChat',()=>{chatSequence++;chatAbort?.abort();chatter.cancel('Stopped','chat');return {ok:true};});
  handle('system',()=>system.snapshot());
  // The Hardware view polls this every second: a forced call waits for a complete reading, any other returns at once with fresh CPU and memory and the newest counters.
- handle('hardware',async force=>{const reading=await(force===true||!hardware.live?hardware.snapshot({force:force===true}):hardware.live());return Array.isArray(reading?.processes)?{...reading,processes:reading.processes.map(p=>({...p,endable:endable(p.name)}))}:reading;});
+ handle('hardware',async force=>{const reading=await(force===true||!hardware.live?hardware.snapshot({force:force===true}):hardware.live(force==='glance'?15000:undefined));return Array.isArray(reading?.processes)?{...reading,processes:reading.processes.map(p=>({...p,endable:endable(p.name)}))}:reading;});
  handle('setUpdatePolicy',(id,policy)=>library.setUpdatePolicy(id,policy));
  // Actions chat can offer as buttons. Each is checked here against the live system, whatever the model suggested.
  handle('uninstall',id=>{const a=library.all().find(a=>a.id===id&&a.packageId);if(!a)throw new Error('Only apps installed through WinGet can be uninstalled from AppHub');return library.enqueue('uninstall',[{id:a.packageId,source:a.packageSource}]);});

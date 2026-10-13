@@ -4,13 +4,13 @@ A Windows 11 desktop library for applications, software components, portable too
 
 ## Install
 
-Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.8.1.exe** and **apphub-1.8.1-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
+Build the application from source using the steps below. A packaged build produces a two-file offline installer: keep **AppHub Setup 1.9.0.exe** and **apphub-1.9.0-x64.nsis.7z** together, then run the setup. The accompanying package contains both offline models; do not extract it. Setup verifies its checksum. A missing package stops setup without downloading anything. Alternatively run `dist/win-unpacked/AppHub.exe` after building. Allow about 10 GB of free disk space during installation and use a machine with at least 8 GB of available memory; 16 GB or more system memory is recommended. A graphics card with Vulkan support makes the chat model several times faster but is not required.
 
 ## Use
 
 Open AppHub from the desktop or Start menu. The library refreshes when it starts. Use **Sync** in the status bar after adding or removing software. WinGet update information refreshes on first launch and after six hours; **Updates → Check for updates** refreshes it immediately.
 
-- **Home** shows an ask box, live memory, storage and processor gauges, your favorites and recently opened apps. Click a gauge to ask about it.
+- **Home** opens with an ask box and a few suggested questions, then your favorites and recently opened apps. Beside them, **This PC** shows processor, memory, graphics, storage, network and battery from the hardware monitor; select a reading to open it in **Hardware**. Two tiles show how many updates are ready and how many apps are in the library.
 - **Hardware** is a live monitor. Tiles for Processor, Memory, Graphics, Disk, Network and Battery each show the current reading and a one-minute trace; select one for its chart and details: per-thread load, clock speed, committed and cached memory, memory modules, graphics engines and memory, per-drive activity, health and wear, per-volume space, Wi-Fi standard, band and signal, battery charge rate, health and cycles. **Programs** groups running processes by name and sorts by memory or processor use; **End…** asks for confirmation first and is not offered for Windows components, security software or AppHub. **This device** lists the system, processor, memory, graphics, displays, drives and firmware. Readings update every second while the page is visible and stop when you leave it. **Ask about this PC** sends the same facts to Chat. Temperature and fan readings appear where Windows or an already-running LibreHardwareMonitor or OpenHardwareMonitor reports them.
 - **Chat** answers questions about your apps and this PC, looks things up when a question needs them, and offers buttons for what it suggests. See Local chat below.
 - Search by name, partial name, typo, tag, or a task such as **make my screen warmer at night**. Search includes Windows settings.
@@ -24,7 +24,7 @@ Open AppHub from the desktop or Start menu. The library refreshes when it starts
 
 ## Appearance
 
-**Settings → Appearance** offers seventeen themes, ten dark and six light plus System, which follows the Windows app mode, and seven pastel accent colours. The choice is stored on this PC.
+**Settings → Appearance** offers twenty themes, twelve dark and seven light plus System, which follows the Windows app mode, and seven pastel accent colours. Claret, Crimson and Vellum are deep-red themes with their own crimson accent and serif headings; choosing another accent still applies. The choice is stored on this PC.
 
 ## Keyboard
 

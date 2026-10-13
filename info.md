@@ -2,6 +2,15 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.9.0 — 2026-10-12
+
+- Home is redesigned. A header carries the date, the ask box and four suggested questions. Favorites and recently opened apps sit on the left; recent apps show when each was last opened. A side column shows update and app counts and a This PC panel.
+- This PC on Home now reads from the hardware monitor instead of the earlier separate collector, so Home and Hardware agree. It shows processor and memory with a one-minute trace, graphics, storage, network and battery. Selecting a reading opens that tab in Hardware.
+- Home reads processor and memory every second while the window is in use and the slower Windows counters every fifteen seconds; an unfocused window reads every ten seconds.
+- Three red themes: Claret (wine-dark with a crimson accent), Crimson (deep red throughout) and Vellum (cream with crimson ink). Each has its own accent and serif headings; any of the seven accents can still be chosen over it.
+- The title-bar logo follows the accent colour.
+- Validation: 141 unit tests, 30 hidden renderer checks and 23 full hidden Electron integration checks passed.
+
 ## 1.8.1 — 2026-10-12
 
 - Upgrading from 1.6.1 or earlier no longer shows "Recovered preferences.json". The saved preferences were intact; they only lacked the update-hold field added in 1.7.0, and filling it in was reported as a recovery, with a backup copy and a notice that stayed until restart. Fields added by a newer version are now filled in quietly. A file that is unreadable or holds invalid values is still backed up and reported.

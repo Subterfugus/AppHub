@@ -87,3 +87,8 @@ test('the description gives the chat model what the hardware is, how it is used 
  for(const fact of [/Vendor Book 14, Laptop/,/8 cores \/ 8 threads; base clock 2\.2 GHz/,/busiest thread 30%/,/LPDDR5; modules 8 × 4 GB at 8533 MHz \(soldered, not upgradeable\)/,/committed 30 GB of 37 GB \(81%\)/,/integrated, shares system memory; use 26% \(3D 26%\); shared memory in use 2 GB/,/Display: built-in panel, 14 inch/,/Fast SSD: NVMe SSD, 931\.3 GB; health Healthy; 2% of rated life used; 41°C/,/802\.11ax, 5 GHz, channel 149, signal 94%/,/charging at 21\.5 W; holds 71\.5 Wh of its original 75 Wh \(95% health\); 32 charge cycles/,/browser 3 GB \(23 processes\)/,/How to read these/])assert.match(text,fact);
  assert.doesNotMatch(JSON.stringify(s)+text,/PRIVATE/);assert.ok(text.length<4000);
 });
+
+test('a glance reuses Windows counters for longer than the live view does',async()=>{
+ const f=fixture({liveMs:2500});await f.monitor.live();f.advance(5000);const glance=await f.monitor.live(15000);assert.equal(f.reads(),1);assert.equal(glance.memory.totalBytes,8192);
+ f.advance(11000);await f.monitor.live(15000);assert.equal(f.reads(),2);await f.monitor.pending;
+});
