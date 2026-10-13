@@ -1,6 +1,6 @@
 {
   "name": "apphub",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Your whole PC. One library.",
   "author": "AppHub",
   "main": "src/main.cjs",

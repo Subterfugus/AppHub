@@ -2,6 +2,11 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.8.1 — 2026-10-12
+
+- Upgrading from 1.6.1 or earlier no longer shows "Recovered preferences.json". The saved preferences were intact; they only lacked the update-hold field added in 1.7.0, and filling it in was reported as a recovery, with a backup copy and a notice that stayed until restart. Fields added by a newer version are now filled in quietly. A file that is unreadable or holds invalid values is still backed up and reported.
+- Validation: 140 unit tests passed.
+
 ## 1.8.0 — 2026-10-12
 
 - Hardware is rebuilt. Six tiles (Processor, Memory, Graphics, Disk, Network, Battery) show the current reading with a one-minute trace; selecting one opens a chart and its details. Programs and This device are separate tabs. Readings update every second instead of every four, and updating no longer redraws the page, so scrolling, hovering and keyboard focus are undisturbed.

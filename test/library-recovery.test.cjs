@@ -7,7 +7,7 @@ const {Library}=require('../src/library.cjs');
 function directory(t){const data=fs.mkdtempSync(path.join(os.tmpdir(),'apphub-recovery-'));t.after(()=>fs.rmSync(data,{recursive:true,force:true}));return data;}
 
 test('incomplete preferences and null jobs recover with exact original backups',t=>{
- const data=directory(t),originals={'preferences.json':'{}','jobs.json':'null','library.json':'{"apps":[null,{}, {"id":"valid","name":"Valid","publisher":7}],"warnings":false,"extra":"keep"}'};
+ const data=directory(t),originals={'preferences.json':'{"favorites":"all"}','jobs.json':'null','library.json':'{"apps":[null,{}, {"id":"valid","name":"Valid","publisher":7}],"warnings":false,"extra":"keep"}'};
  for(const [file,contents]of Object.entries(originals))fs.writeFileSync(path.join(data,file),contents);
  const lib=new Library(data),snapshot=lib.snapshot();
  assert.equal(snapshot.items.some(a=>a.id==='valid'),true);assert.equal(lib.state.extra,'keep');assert.deepEqual(lib.jobs,[]);assert.equal(lib.prefs.aiEnabled,true);assert.equal(snapshot.warnings.length,3);
@@ -63,4 +63,10 @@ test('stopping a running job lets the active installer finish and skips the rest
  assert.deepEqual(calls,['Vendor.First']);assert.equal(job.status,'canceled');
  assert.deepEqual(job.results.map(r=>[r.id,r.success,!!r.notRun]),[['Vendor.First',true,false],['Vendor.Second',false,true],['Vendor.Third',false,true]]);
  assert.throws(()=>lib.stopJob(job.id),/already finished/);
+});
+
+test('preferences saved by an earlier version gain new fields without a recovery notice or backup',t=>{
+ const data=directory(t),old={favorites:['one'],hidden:[],tags:{},recent:[],custom:[],folders:[],aiEnabled:false};fs.writeFileSync(path.join(data,'preferences.json'),JSON.stringify(old));
+ const lib=new Library(data);assert.deepEqual(lib.snapshot().warnings,[]);assert.deepEqual(lib.prefs,{...old,updatePolicies:{}});
+ assert.deepEqual(fs.readdirSync(data).filter(f=>f.includes('.recovered-')),[]);assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data,'preferences.json'),'utf8')),lib.prefs);
 });
