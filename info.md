@@ -2,6 +2,19 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.8.0 — 2026-10-12
+
+- Hardware is rebuilt. Six tiles (Processor, Memory, Graphics, Disk, Network, Battery) show the current reading with a one-minute trace; selecting one opens a chart and its details. Programs and This device are separate tabs. Readings update every second instead of every four, and updating no longer redraws the page, so scrolling, hovering and keyboard focus are undisturbed.
+- Readings come from one PowerShell session kept open while the page is visible, rather than a new process for every refresh. Processor and memory figures come straight from the app on every tick; Windows counters follow in the background about every 2.5 seconds; component inventory is read once and reused for five minutes. The session closes 20 seconds after the page is left.
+- Much more detail is collected: per-thread load and clock speed, process, thread and queue counts, uptime; committed, cached and paged memory, hard faults, page file, module type, speed and whether memory is soldered; graphics load by engine, dedicated and shared memory, whether the adapter shares system memory, driver date; drive type, bus, health, wear, temperature and power-on hours where reported; volume file systems; Wi-Fi standard, band, channel, signal and link rates (never the network name); battery charge or discharge rate, voltage, health against design capacity and cycles; displays, firmware, power plan and Secure Boot.
+- Chat receives all of it as a written description that ends with notes on how to read the numbers, so the model can judge the hardware and not only repeat it.
+- Programs are grouped by name with a process count, sortable by name, processor or memory. The ten heaviest are shown, and up to 80 on request.
+- Chat: the "Checked …" line and the separate Sources & facts panel are replaced by one row of sources under each reply. Selecting a source shows what was given to the model and when.
+- Updates: the three controls on every row are replaced by one ⋯ menu (Skip this version, Never update). Held apps move to a collapsed group with Allow again, and no longer count towards the Updates badge. App details has the same menu.
+- Settings → Local models is three rows, one for each job (Finding apps, Understanding searches, Chat), each with its model and what it is doing. Tuning, prefixes and reset are under Advanced.
+- Home's gauges still use the earlier, lighter collector.
+- Validation: 139 unit tests, 30 hidden renderer checks and 23 full hidden Electron integration checks passed, including live hardware collection on Windows. Ending a program was validated through its refusal paths and unit tests, not by ending a real program.
+
 ## 1.7.0 — 2026-10-12
 
 - Follow-up network fix: prefer modern Windows adapter discovery so active Wi-Fi adapters omitted by the legacy query still expose download/upload and link-speed readings. Keep the legacy query as a fallback. Verified against the active adapter and 11 focused hardware/lookup tests.

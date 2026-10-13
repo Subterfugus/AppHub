@@ -11,7 +11,7 @@ function fixture(options={}) {
 test('snapshot samples CPU and reports explicit units, provenance, and projected hardware fields',async()=>{
  const f=fixture(),s=await f.monitor.snapshot();
  assert.equal(s.schemaVersion,1);assert.equal(s.cpu.utilizationPercent,37.5);assert.deepEqual(s.cpu.cores.map(c=>c.utilizationPercent),[50,25]);assert.equal(s.cpu.cores[0].frequencyMHz,3000);
- assert.deepEqual(s.memory,{totalBytes:8192,freeBytes:3072,usedBytes:5120,commitUsedBytes:2048,commitLimitBytes:4096});
+ const {totalBytes,freeBytes,usedBytes,commitUsedBytes,commitLimitBytes}=s.memory;assert.deepEqual({totalBytes,freeBytes,usedBytes,commitUsedBytes,commitLimitBytes},{totalBytes:8192,freeBytes:3072,usedBytes:5120,commitUsedBytes:2048,commitLimitBytes:4096});assert.equal(s.memory.cachedBytes,null);
  assert.equal(s.gpus[0].utilizationPercent,35);assert.equal(s.gpus[0].dedicatedUsedBytes,512);assert.equal(s.gpus[0].name,'Test GPU');assert.equal(s.disks.physical[0].readBytesPerSecond,10);
  assert.equal(s.network[0].receiveBytesPerSecond,123);assert.equal(s.battery.present,false);assert.equal(s.sensors[0].unit,'°C');assert.equal(s.sources.os.status,'available');assert.equal(f.scripts[0].opts.timeout,15000);
  assert.match(describe(s),/CPU package 42°C/);assert.match(describe(s),/Battery: not present/);
@@ -60,4 +60,30 @@ test('catalog transport/source errors are unavailable rather than cached empty m
 });
 test('startup action identities keep the complete raw registry value name',()=>{
  const {startupKey}=require('../src/lookups.cjs');assert.equal(startupKey({scope:'user',kind:'run',name:'Display label',rawName:'Exact  raw name'}),'user|run|Exact  raw name');
+});
+
+test('the live view answers at once with fresh CPU and memory and refreshes Windows counters in the background',async()=>{
+ const f=fixture({liveMs:2500}),first=await f.monitor.live();assert.equal(f.reads(),1);assert.equal(first.cpu.utilizationPercent,37.5);
+ f.advance(1000);const second=await f.monitor.live();assert.equal(f.reads(),1);assert.equal(second.gpus[0].utilizationPercent,35);assert.equal(second.memory.totalBytes,8192);assert.equal(second.cpu.cores.length,2);assert.notEqual(second.capturedAt,first.capturedAt);assert.equal(second.countersCapturedAt,first.capturedAt);
+ f.advance(2000);await f.monitor.live();assert.equal(f.reads(),2);await f.monitor.pending;assert.equal(f.monitor.pending,null);
+});
+test('a session answers readings and a failed session falls back to a one-shot query',async()=>{
+ const asked=[];const ok=fixture({session:{request:async full=>{asked.push(full);return {code:0,out:JSON.stringify({data:{battery:{present:false}},sources:{},errors:[]})};}}}),s=await ok.monitor.snapshot();
+ assert.deepEqual(asked,[true]);assert.equal(ok.reads(),0);assert.equal(s.battery.present,false);
+ const broken=fixture({session:{request:async()=>{throw new Error('closed');}}}),t=await broken.monitor.snapshot();assert.equal(broken.reads(),1);assert.equal(t.gpus[0].name,'Test GPU');
+ const {PowerShellSession}=require('../src/hardware.cjs'),{EventEmitter}=require('node:events');const child=Object.assign(new EventEmitter(),{stdout:new EventEmitter(),stdin:Object.assign(new EventEmitter(),{lines:[],write(x){this.lines.push(x);},end(){}}),kill(){}});
+ const session=new PowerShellSession({start:()=>child,idleMs:5}),reply=session.request(false);await assert.rejects(session.request(true),/busy/);child.stdout.emit('data','{"data"');child.stdout.emit('data',':{}}\n');
+ assert.deepEqual(await reply,{code:0,out:'{"data":{}}'});assert.deepEqual(child.stdin.lines,['live\n']);const lost=session.request(true);child.emit('exit');await assert.rejects(lost,/failed/);session.close();
+});
+test('the description gives the chat model what the hardware is, how it is used and how to judge it',()=>{
+ const s=normalizeWindows({data:{memory:{commitUsedBytes:30*2**30,commitLimitBytes:37*2**30,cachedBytes:14*2**30,hardFaultsPerSecond:3,pageFileAllocatedBytes:6*2**30,pageFileUsedBytes:2*2**30},activity:{processes:450,threads:5900,queueLength:0,uptimeSeconds:7200},
+  gpu:{engines:[{index:0,engine:'0:3D',utilizationPercent:26}],memory:[{index:0,dedicatedUsedBytes:0,sharedUsedBytes:2*2**30}]},wifi:{radio:'802.11ax',band:'5 GHz',channel:'149',signalPercent:'94',ssid:'PRIVATE'},network:[{index:1,name:'Test Wi-Fi 7',media:'Native 802.11',status:'connected',receiveBytesPerSecond:2048,sendBytesPerSecond:1024,linkSpeedBitsPerSecond:1201000000}],
+  battery:{present:true,chargePercent:79,status:2,pluggedIn:true,chargeRateMilliwatts:21500},processes:[{name:'browser',count:23,cpuPercent:4.2,memoryBytes:3*2**30},{name:'editor',count:1,cpuPercent:0,memoryBytes:2**29}],
+  inventory:{manufacturer:'Vendor',model:'Book 14',chassisTypes:[10],os:{name:'Windows 11 Home',build:'26300',architecture:'64-bit'},processor:{name:'Test CPU',cores:8,threads:8,maxClockMHz:2200,l3CacheKB:12288},memoryModules:Array(8).fill({capacityBytes:4*2**30,speedMHz:8533,type:35}),memorySlots:8,
+   physical:[{index:0,name:'DISK',sizeBytes:1e12,health:'OK',interface:'SCSI'}],physicalModern:[{index:0,name:'Fast SSD',media:'SSD',bus:'NVMe',health:'Healthy',wearPercent:2,temperatureC:41}],displays:[{name:'',widthCm:30,heightCm:19}],battery:{designMilliwattHours:75000,fullMilliwattHours:71500,cycles:32},
+   gpus:[{name:'Intel(R) Arc(TM) 140V GPU (16GB)',dac:'Internal',dedicatedTotalBytes:18*2**30,driverVersion:'1.2',width:2880,height:1800,refreshRateHz:120}]}}});
+ assert.equal(s.gpus[0].sharesSystemMemory,true);assert.equal(s.disks.physical[0].kind,'NVMe SSD');assert.equal(s.network[0].kind,'Wi-Fi');assert.equal(s.network[0].wifi.signalPercent,94);assert.equal(s.battery.healthPercent,95);assert.equal(s.inventory.formFactor,'Laptop');assert.equal(s.inventory.displays[0].diagonalInches,14);assert.equal(s.processes[0].count,23);
+ const text=describe({schemaVersion:1,capturedAt:'2026-10-12T10:00:00.000Z',errors:[],sensors:s.sensors,cpu:{model:'Test CPU',logicalCores:8,physicalCores:8,maxClockMHz:2200,l3CacheKB:12288,utilizationPercent:12.5,frequencyMHz:2500,cores:[{utilizationPercent:30},{utilizationPercent:5}],...s.activity},memory:{totalBytes:32*2**30,usedBytes:17*2**30,freeBytes:15*2**30,...s.memory},gpus:s.gpus,disks:s.disks,network:s.network,battery:s.battery,processes:s.processes,inventory:s.inventory});
+ for(const fact of [/Vendor Book 14, Laptop/,/8 cores \/ 8 threads; base clock 2\.2 GHz/,/busiest thread 30%/,/LPDDR5; modules 8 × 4 GB at 8533 MHz \(soldered, not upgradeable\)/,/committed 30 GB of 37 GB \(81%\)/,/integrated, shares system memory; use 26% \(3D 26%\); shared memory in use 2 GB/,/Display: built-in panel, 14 inch/,/Fast SSD: NVMe SSD, 931\.3 GB; health Healthy; 2% of rated life used; 41°C/,/802\.11ax, 5 GHz, channel 149, signal 94%/,/charging at 21\.5 W; holds 71\.5 Wh of its original 75 Wh \(95% health\); 32 charge cycles/,/browser 3 GB \(23 processes\)/,/How to read these/])assert.match(text,fact);
+ assert.doesNotMatch(JSON.stringify(s)+text,/PRIVATE/);assert.ok(text.length<4000);
 });
