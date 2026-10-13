@@ -73,15 +73,18 @@ let modelDraft = null, modelPending = false, modelError = '';
 const answerOpening = new Set();
 let chat = [], chatBusy = false, chatDraft = '', chatStream = '', chatStatus = '', chatEpoch = 0, askDraft = '';
 let systemInfo = null, systemTimer = null, systemLoading = false;
+let hardwareInfo = null, hardwareTimer = null, hardwareLoading = false, hardwareError = '';
+let hardwareHistory = [], hardwareSort = 'cpu', evidenceOpen = new Set();
+const policyPending = new Set(), chatOpening = new Set();
 const recentlyActivated = new Set();
 
 const nav = [
-  ['', [['home', 'home', 'Home'], ['chat', 'chat', 'Chat']]],
+  ['', [['home', 'home', 'Home'], ['chat', 'chat', 'Chat'], ['hardware', 'pulse', 'Hardware']]],
   ['Library', [['all', 'grid', 'Apps'], ['favorites', 'star', 'Favorites'], ['recent', 'clock', 'Recent'], ['settings', 'sliders', 'Windows settings']]],
   ['Packages', [['updates', 'download', 'Updates'], ['discover', 'plus', 'Install apps'], ['reproduce', 'swap', 'Export & restore'], ['activity', 'pulse', 'Activity']]]
 ];
 const categories = ['Development', 'Creative', 'Music & audio', 'Productivity', 'Browsers', 'Communication', 'Games', 'Utilities'];
-const titles = {home: 'Home', chat: 'Chat', all: 'Apps', favorites: 'Favorites', recent: 'Recent', settings: 'Windows settings', updates: 'Updates', discover: 'Install apps', reproduce: 'Export & restore', activity: 'Activity', preferences: 'Settings'};
+const titles = {home: 'Home', chat: 'Chat', hardware: 'Hardware', all: 'Apps', favorites: 'Favorites', recent: 'Recent', settings: 'Windows settings', updates: 'Updates', discover: 'Install apps', reproduce: 'Export & restore', activity: 'Activity', preferences: 'Settings'};
 
 const item = id => state.items.find(a => a.id === id);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -90,7 +93,9 @@ const modelName = role => role === 'reasoning' && state.models?.active?.reasonin
   ? 'Interpretation off'
   : String((role === 'embedding' ? state.ai : state.reasoner)?.model || state.models?.profiles?.find(p => p.id === state.models?.active?.[role])?.name || (role === 'embedding' ? 'Local retrieval' : 'Local interpretation'));
 const modelDescription = () => `${modelName('embedding')} finds apps and Windows settings by meaning. `
-  + (state.models?.active?.reasoning === 'off' ? 'Interpretation is off.' : `${modelName('reasoning')} reads each search and lists the entries that fit. ${state.models?.profiles?.find(p => p.id === state.models?.active?.chat)?.name || 'It also'} answers in Chat.`)
+  + (state.models?.active?.reasoning === 'off' ? 'Search interpretation is off. ' : `${modelName('reasoning')} reads each search and lists the entries that fit. `)
+  + (state.models?.active?.reasoning === 'off' && !state.models?.active?.chat ? 'Chat has no selected model. ' : `${state.models?.profiles?.find(p => p.id === state.models?.active?.chat)?.name || modelName('reasoning')} answers in Chat. `)
+  + 'One AI model runs at a time and unloads after 60 seconds idle.'
   + ' Names, partial names and typos work either way. Queries and your software list stay on this PC.';
 
 function toast(text, error = false) {
@@ -169,27 +174,31 @@ function updateFooter() {
   const synced = state.lastScan ? 'Synced ' + new Date(state.lastScan).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : 'Not synced yet';
   $('#sync-status').textContent = state.scanning ? 'Syncing…' : `${plural(apps.length, 'app')} · ${synced}`;
   $('#refresh').disabled = !!state.scanning;
-  const ai = state.ai || {}, reasoner = state.reasoner || {};
+  const ai = state.ai || {}, reasoner = state.reasoner || {}, chatEngine = state.chatEngine || {};
   const reasoning = reasoner.pid || ['loading', 'starting', 'thinking'].includes(reasoner.status);
+  const chatting = chatEngine.pid || ['loading', 'starting', 'thinking', 'ready'].includes(chatEngine.status);
   const retrieving = ai.pid || ['loading', 'starting', 'running', 'ready', 'searching'].includes(ai.status);
   const off = state.prefs.aiEnabled === false;
   $('#ai-status span').textContent = off ? 'Local AI off'
+    : chatting ? chatEngine.message || 'Chat ready'
     : reasoning ? reasoner.message || modelName('reasoning') + ' interpreting…'
     : retrieving ? ai.message || 'Local search ready'
     : 'Local AI asleep';
-  $('#ai-status').classList.toggle('active', !off && !!(reasoning || retrieving));
+  $('#ai-status').classList.toggle('active', !off && !!(reasoning || retrieving || chatting));
   $('#ai-status').title = `${modelName('embedding')} finds matches; ${modelName('reasoning')} interprets requests. Click for settings.`;
 }
 
 // Preserve keyboard position and unfinished input during background updates.
 function retainFocus(renderView) {
   const active = document.activeElement;
+  const scrolls = ['content', 'chat-log', 'details'].map(id => { const el = document.getElementById(id); return el && {id, top: el.scrollTop, pinned: id === 'chat-log' && el.scrollHeight - el.scrollTop - el.clientHeight < 80}; }).filter(Boolean);
   const marker = active && active !== document.body && active !== document.documentElement ? {
     id: active.id, tag: active.tagName, data: {...active.dataset}, card: active.closest('.app-card')?.dataset.id,
     value: active.matches('input:not([type=checkbox]):not([type=radio]),textarea') ? active.value : undefined,
     start: active.selectionStart, end: active.selectionEnd
   } : null;
   renderView();
+  for (const scroll of scrolls) { const el = document.getElementById(scroll.id); if (el) el.scrollTop = scroll.pinned ? el.scrollHeight : scroll.top; }
   if (!marker || active.isConnected) return;
   let replacement = marker.id ? document.getElementById(marker.id) : null;
   if (!replacement) {
@@ -220,6 +229,8 @@ function renderNav() {
 }
 
 function navigate(v, c = '') {
+  if (v !== 'hardware') { clearInterval(hardwareTimer); hardwareTimer = null; }
+  if (v !== 'home') { clearInterval(systemTimer); systemTimer = null; }
   if (searching) api.cancelSearch?.().catch(() => {});
   clearTimeout(debounce);
   view = v; category = c; query = ''; $('#search').value = '';
@@ -250,6 +261,7 @@ function renderContent() {
   else if (view === 'activity') renderActivity();
   else if (view === 'preferences') renderPreferences();
   else if (view === 'discover') renderDiscover();
+  else if (view === 'hardware') renderHardware();
   renderDetails();
   $('#add-app')?.addEventListener('click', () => attempt(() => api.addApp()));
   $('#new-chat')?.addEventListener('click', newChat);
@@ -441,7 +453,8 @@ function renderDetails() {
     + `<button id="detail-star" class="button subtle${a.favorite ? ' is-favorite' : ''}" aria-pressed="${a.favorite ? 'true' : 'false'}">${svg('star')}${a.favorite ? 'Favorited' : 'Favorite'}</button></div>`
     + (a.unavailable ? `<div class="notice warn">${esc(a.unavailableReason || 'This app’s folder is unavailable. Reconnect it, then sync your library.')}<br>Use Sync to retry.</div>` : '')
     + (!a.launch ? '<div class="notice">Nothing to open. This is probably a runtime, driver, plugin or background component.</div>' : '')
-    + (a.available ? `<div class="notice info">Update available: ${esc(a.available)} <button class="text-button" id="detail-update">Review update</button></div>` : '')
+    + (a.available ? `<div class="notice info">Update available: ${esc(a.available)} ${a.updateBlocked ? '<span>· Held by your update preference</span>' : '<button class="text-button" id="detail-update">Review update</button>'}</div>` : '')
+    + (a.packageId ? `<div class="detail-section update-preferences"><strong>Update preferences</strong>${updatePolicyControls(a)}</div>` : '')
     + `<dl class="detail-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`
     + `<div class="detail-links">${a.location || a.executable ? '<button class="text-button" id="reveal">Show in File Explorer</button>' : ''}${a.packageId ? '<button class="text-button" id="package-info">Package info</button><button class="text-button" id="detail-uninstall">Uninstall…</button>' : ''}</div>`
     + `<div class="detail-section"><label for="tags">Tags</label><input class="text-input" id="tags" data-item-id="${esc(a.id)}" placeholder="work, daily, audio" value="${esc((a.tags || []).join(', '))}"><small>Comma-separated. Tags are searchable.</small></div>`
@@ -463,6 +476,7 @@ function renderDetails() {
   $('#reveal')?.addEventListener('click', () => attempt(() => api.reveal(a.id)));
   $('#detail-update')?.addEventListener('click', () => reviewUpdates([a]));
   $('#package-info')?.addEventListener('click', () => packageInfo(a));
+  bindUpdatePolicies(el);
   if (draft) { const tags = $('#tags'); tags.value = draft.value; tags.focus(); tags.setSelectionRange(draft.start, draft.end); }
 }
 
@@ -529,7 +543,7 @@ function confirmEnd(p, done) {
   confirmAction({
     title: `End ${p.name}?`, label: 'End program', danger: true,
     body: `${p.count > 1 ? `All ${p.count} ${esc(p.name)} processes close` : esc(p.name) + ' closes'} immediately, and anything unsaved in it is lost.`,
-    run: () => api.endProcess(p.name), done: () => { done?.(); toast(`${p.name} ended`); }
+    run: () => api.endProcess(p.processName ?? p.name), done: () => { done?.(); toast(`${p.name} ended`); }
   });
 }
 function confirmStartup(s, done) {
@@ -547,17 +561,46 @@ async function exportLibrary() {
   });
 }
 
+function updatePolicyControls(a) {
+  const p = a.updatePolicy || {}, busy = policyPending.has(a.id), disabled = busy ? 'disabled' : '';
+  return `<label class="policy-toggle"><input type="checkbox" data-policy-exclude="${esc(a.id)}" ${p.excluded ? 'checked' : ''} ${disabled}>Exclude from updates</label><div class="policy-actions">${a.available && p.skipVersion !== a.available ? `<button class="text-button" data-policy-skip="${esc(a.id)}" ${disabled}>Skip version ${esc(a.available)}</button>` : ''}${p.skipVersion ? `<span class="policy-note">Skipping ${esc(p.skipVersion)}</span><button class="text-button" data-policy-unskip="${esc(a.id)}" ${disabled}>Allow skipped version</button>` : ''}${p.excluded || p.skipVersion ? `<button class="text-button" data-policy-reset="${esc(a.id)}" ${disabled}>Reset preferences</button>` : ''}${busy ? '<small role="status">Saving…</small>' : ''}</div>`;
+}
+function bindUpdatePolicies(host) {
+  host.querySelectorAll('[data-policy-exclude]').forEach(b => b.onchange = () => setUpdatePolicy(b.dataset.policyExclude, {excluded: b.checked}));
+  for (const action of ['skip', 'unskip', 'reset']) host.querySelectorAll(`[data-policy-${action}]`).forEach(b => b.onclick = () => {
+    const id = b.dataset['policy' + action[0].toUpperCase() + action.slice(1)];
+    setUpdatePolicy(id, action === 'reset' ? {excluded: false, skipVersion: null} : {skipVersion: action === 'skip' ? item(id)?.available : null});
+  });
+}
+async function setUpdatePolicy(id, change) {
+  const a = item(id);
+  if (!a || policyPending.has(id)) return;
+  const focusWasPolicy = Object.entries(document.activeElement?.dataset || {}).some(([key, value]) => key.startsWith('policy') && value === id), previousView = view, previousSelected = selected;
+  policyPending.add(id); render();
+  try { const snapshot = await api.setUpdatePolicy(id, {excluded: !!a.updatePolicy?.excluded, skipVersion: a.updatePolicy?.skipVersion || null, ...change}); if (snapshot) state = {...state, ...snapshot}; }
+  catch (error) { toast(cleanError(error), true); }
+  finally {
+    policyPending.delete(id); render();
+    if (focusWasPolicy && view === previousView && selected === previousSelected && document.activeElement === document.body) {
+      [...document.querySelectorAll('[data-policy-exclude]')].find(el => el.dataset.policyExclude === id)?.focus({preventScroll: true});
+    }
+  }
+}
+
 function renderUpdates() {
   const apps = state.items.filter(a => a.available);
+  const eligible = apps.filter(a => !a.updateBlocked), policies = state.items.filter(a => !a.available && (a.updatePolicy?.excluded || a.updatePolicy?.skipVersion));
   const checked = state.packageChecked ? 'Checked ' + new Date(state.packageChecked).toLocaleString() : 'Not checked yet';
   $('#body').innerHTML = `<div class="section-controls narrow"><span class="meta">${apps.length ? plural(apps.length, 'update') + ' · ' : ''}${checked}</span><span class="spacer"></span>`
-    + `<button id="check-updates" class="button subtle">${svg('sync')}Check for updates</button>${apps.length ? '<button id="update-all" class="button primary">Update all…</button>' : ''}</div>`
-    + `<div id="update-list" class="rows">${apps.map(a => `<div class="update-row">${icon(a)}<div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc(a.version)} → <span class="new-version">${esc(a.available)}</span> · ${esc(a.packageId)}</small></div><button class="button subtle" data-update="${esc(a.id)}">Update…</button></div>`).join('')}</div>`
+    + `<button id="check-updates" class="button subtle">${svg('sync')}Check for updates</button>${apps.length ? `<button id="update-all" class="button primary" ${eligible.length ? '' : 'disabled'}>Update ${eligible.length === apps.length ? 'all' : eligible.length + ' eligible'}…</button>` : ''}</div>`
+    + `<div id="update-list" class="rows">${apps.map(a => `<div class="update-row policy-row">${icon(a)}<div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc(a.version)} → <span class="new-version">${esc(a.available)}</span> · ${esc(a.packageId)}</small>${a.updateBlocked ? `<small class="policy-held">${a.updateBlockReason === 'skipped-version' ? 'This version is skipped' : 'Excluded from updates'}. Reset preferences to allow this update.</small>` : ''}${updatePolicyControls(a)}</div><button class="button subtle" data-update="${esc(a.id)}" ${a.updateBlocked ? 'disabled' : ''}>Update…</button></div>`).join('')}</div>`
+    + (policies.length ? `<section class="panel saved-policies"><h2>Saved update preferences</h2>${policies.map(a => `<div class="saved-policy"><strong>${esc(a.name)}</strong>${updatePolicyControls(a)}</div>`).join('')}</section>` : '')
     + (apps.length ? '' : `<div class="empty"><h3>${state.packageChecked ? 'Everything is up to date' : 'Not checked yet'}</h3><p>${state.packageChecked ? 'No WinGet updates were found.' : 'Check WinGet for available updates.'}</p></div>`)
     + '<p class="footnote">Updates run through WinGet. Apps it doesn’t manage update themselves, and installers may ask for administrator access.</p>';
   $('#check-updates').onclick = checkUpdates;
-  $('#update-all')?.addEventListener('click', () => reviewUpdates(apps));
+  $('#update-all')?.addEventListener('click', () => reviewUpdates(eligible));
   $('#update-list').onclick = e => { const b = e.target.closest('[data-update]'); if (b) reviewUpdates(apps.filter(a => a.id === b.dataset.update)); };
+  bindUpdatePolicies($('#body'));
 }
 async function checkUpdates() {
   const button = $('#check-updates');
@@ -566,6 +609,8 @@ async function checkUpdates() {
   if (button?.isConnected) { button.disabled = false; button.innerHTML = svg('sync') + 'Check for updates'; }
 }
 function reviewUpdates(apps) {
+  apps = apps.filter(a => a.available && !a.updateBlocked);
+  if (!apps.length) { toast('Allow this update in its update preferences first.'); return; }
   modal(`<h2>Update ${apps.length === 1 ? esc(apps[0].name) : plural(apps.length, 'app')}?</h2><p>WinGet will run the installers for the selected packages. Save your work in these apps first.${apps.length > 1 ? ' Packages install one at a time, and most ask for administrator approval, so stay nearby. You can stop the queue from Activity.' : ''}</p>`
     + `<div class="plan-list">${apps.map(a => `<label class="plan-row"><input type="checkbox" checked data-update-select="${esc(a.id)}"><div class="plan-entry"><strong>${esc(a.name)}</strong><small>${esc(a.version)} → ${esc(a.available)}</small></div></label>`).join('')}</div>`
     + '<div class="modal-actions"><button id="cancel-modal" class="button subtle">Cancel</button><button id="confirm-updates" class="button primary">Start updates</button></div>');
@@ -576,7 +621,7 @@ function reviewUpdates(apps) {
 }
 
 function renderReproduce() {
-  $('#body').innerHTML = '<div class="panel"><h2>Export</h2><p>Saves a manifest of your package IDs, versions, app locations, favorites and tags. Keep it with your backups, or use it to set up another Windows PC.</p><button id="export" class="button primary">Export library…</button></div>'
+  $('#body').innerHTML = '<div class="panel"><h2>Export</h2><p>Saves a manifest of your package IDs, versions, app locations and library preferences: favorites, hidden entries, tags and update preferences. Keep it with your backups, or use it to set up another Windows PC.</p><button id="export" class="button primary">Export library…</button></div>'
     + `<div class="panel"><h2>Restore</h2><p>Open a manifest to compare it with this PC, then choose which missing packages to install.</p><button id="import" class="button subtle">Open manifest…</button>${libraryPlan ? '<button id="review-plan" class="button subtle">Review imported library</button>' : ''}</div>`
     + '<p class="footnote">A manifest is a list of software, not a backup. App data, licences, game files and Windows settings are not included. Apps outside WinGet are listed for manual reinstall.</p>';
   $('#export').onclick = exportLibrary;
@@ -598,7 +643,7 @@ function showPlan(plan) {
   modal('<h2>Recreate your library</h2>'
     + `<p>${packages.filter(p => !p.installed).length} packages missing · ${packages.filter(p => p.installed).length} already installed · ${plan.referenceCount || references.length} other apps listed for reference.</p>`
     + packageList + referenceList
-    + '<div class="restore-preferences"><h3>Favorites and tags</h3><p>Applies the saved favorites and tags to matching apps on this PC. Run it again after installing to cover the new apps.</p><button id="restore-preferences" class="button subtle">Restore favorites and tags</button><span id="restore-result" role="status"></span></div>'
+    + '<div class="restore-preferences"><h3>Library preferences</h3><p>Applies saved favorites, hidden entries, tags and update preferences to matching apps on this PC. Run it again after installing to cover the new apps.</p><button id="restore-preferences" class="button subtle">Restore preferences</button><span id="restore-result" role="status"></span></div>'
     + `<div class="modal-actions"><button id="cancel-modal" class="button subtle">Close</button><button id="confirm-plan" class="button primary" ${packages.every(p => p.installed) ? 'disabled' : ''}>Install selected</button></div>`);
   const button = $('#confirm-plan');
   const selection = () => [...$('#modal-content').querySelectorAll('[data-plan-id]:checked')].map(e => e.dataset.planId);
@@ -609,8 +654,8 @@ function showPlan(plan) {
     restore.disabled = true;
     attempt(async () => {
       const count = await api.restorePreferences();
-      if (modalIsCurrent(token)) $('#restore-result').textContent = `Restored for ${plural(count, 'matching app')}.`;
-      toast(`Favorites and tags restored for ${plural(count, 'matching app')}`);
+      if (modalIsCurrent(token)) $('#restore-result').textContent = `Library preferences restored for ${plural(count, 'matching app')}.`;
+      toast(`Library preferences restored for ${plural(count, 'matching app')}`);
     }).finally(() => { if (restore.isConnected) restore.disabled = false; });
   };
 }
@@ -656,11 +701,11 @@ function renderPreferences() {
   const unavailable = folder => state.sourceHealth?.find(h => h.type === 'portable-folder' && h.path === folder)?.status === 'unavailable';
   $('#body').innerHTML = [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('')
     + `<div class="panel"><h2>Appearance</h2><div class="swatches" role="radiogroup" aria-label="Theme">${THEMES.map(t =>
-      `<button class="swatch${theme === t.id ? ' active' : ''}" role="radio" aria-checked="${theme === t.id}" data-theme-choice="${t.id}"><span class="swatch-preview${t.colors ? '' : ' system'}" style="${t.colors ? `background:${t.colors[0]};color:${t.colors[2]}` : ''}"><i style="${t.colors ? `background:${t.colors[1]}` : ''}"></i>Aa</span>${t.name}</button>`).join('')}</div>`
+      `<button class="swatch${theme === t.id ? ' active' : ''}" role="radio" aria-checked="${theme === t.id}" tabindex="${theme === t.id ? '0' : '-1'}" data-theme-choice="${t.id}"><span class="swatch-preview${t.colors ? '' : ' system'}" style="${t.colors ? `background:${t.colors[0]};color:${t.colors[2]}` : ''}"><i style="${t.colors ? `background:${t.colors[1]}` : ''}"></i>Aa</span>${t.name}</button>`).join('')}</div>`
     + `<div class="accents" role="radiogroup" aria-label="Accent colour"><span>Accent</span>${ACCENTS.map(([id, label, color]) =>
-      `<button class="accent-dot${accent === id ? ' active' : ''}" role="radio" aria-checked="${accent === id}" data-accent-choice="${id}" title="${label}" aria-label="${label}" style="background:${color}"></button>`).join('')}</div></div>`
+      `<button class="accent-dot${accent === id ? ' active' : ''}" role="radio" aria-checked="${accent === id}" tabindex="${accent === id ? '0' : '-1'}" data-accent-choice="${id}" title="${label}" aria-label="${label}" style="background:${color}"></button>`).join('')}</div></div>`
     + `<div class="panel"><h2>Local AI</h2><p id="model-description">${esc(modelDescription())}</p>`
-    + `<label class="setting-row"><div><strong>Use local AI search</strong><small>The chat model reads every search except an exact app name, and powers Chat. Both models unload 60 seconds after use.</small></div><input id="ai-toggle" class="switch" type="checkbox" ${state.prefs.aiEnabled !== false ? 'checked' : ''}></label>`
+    + `<label class="setting-row"><div><strong>Use local AI</strong><small>AI helps find apps and answers in Chat. One model runs at a time, and unloads after 60 seconds idle.</small></div><input id="ai-toggle" class="switch" type="checkbox" ${state.prefs.aiEnabled !== false ? 'checked' : ''}></label>`
     + `<label class="setting-row"><div><strong>Use the graphics card</strong><small>Runs the chat model on the GPU through Vulkan, which is usually several times faster. If the GPU cannot load it, AppHub uses the CPU instead.</small></div><input id="gpu-toggle" class="switch" type="checkbox" ${state.prefs.gpu !== false ? 'checked' : ''}></label>`
     + runtimeRow('embedding') + runtimeRow('reasoning') + '</div>'
     + '<div id="local-models"></div>'
@@ -674,6 +719,13 @@ function renderPreferences() {
   document.querySelectorAll('[data-remove-folder]').forEach(b => b.onclick = () => attempt(() => api.removeFolder(b.dataset.removeFolder)));
   document.querySelectorAll('[data-theme-choice]').forEach(b => b.onclick = () => { theme = b.dataset.themeChoice; store('theme', theme); applyAppearance(); render(); });
   document.querySelectorAll('[data-accent-choice]').forEach(b => b.onclick = () => { accent = b.dataset.accentChoice; store('accent', accent); applyAppearance(); render(); });
+  $('#body').querySelectorAll('[role=radiogroup]').forEach(group => group.onkeydown = e => {
+    const choices = [...group.querySelectorAll('[role=radio]')], index = choices.indexOf(e.target);
+    if (index < 0 || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? choices.length - 1 : (index + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + choices.length) % choices.length;
+    choices[next].focus({preventScroll: true}); choices[next].click();
+  });
   $('#ai-toggle').onchange = e => attempt(() => api.setAI(e.target.checked));
   $('#gpu-toggle').onchange = e => attempt(() => api.setGpu(e.target.checked));
   $('#prefs-add').onclick = () => attempt(() => api.addApp());
@@ -738,7 +790,9 @@ function renderModelsContent() {
   const profiles = m.profiles || [];
   if (!modelDraft) modelDraft = {...m.active, threads: m.settings?.threads || 4, context: m.settings?.context || 8192, queryPrefix: m.settings?.queryPrefix || '', documentPrefix: m.settings?.documentPrefix || ''};
   for (const role of ['embedding', 'reasoning']) if (modelDraft[role] !== 'off' && !profiles.some(p => p.id === modelDraft[role])) modelDraft[role] = m.active[role];
+  if (modelDraft.chat && !profiles.some(p => p.id === modelDraft.chat)) modelDraft.chat = m.active.chat || null;
   const busy = modelPending || m.busy, open = host.querySelector('details')?.open, off = busy ? 'disabled' : '';
+  const chatChoice = `<div class="model-choice chat-model-choice"><label for="model-chat">Chat model</label><select id="model-chat" ${off}><option value="" ${!modelDraft.chat ? 'selected' : ''}>Use the interpretation model</option>${profiles.filter(p => p.role === 'reasoning').map(p => `<option value="${esc(p.id)}" ${modelDraft.chat === p.id ? 'selected' : ''}>${esc(p.name)}${m.active.chat === p.id ? ' · Active' : ''}</option>`).join('')}</select><div class="model-info">Choose a separate model for conversations. Search keeps its interpretation model.</div><div class="model-actions"><button id="chat-model-add" class="button subtle" ${off}>${svg('plus')}Add GGUF file…</button><button id="chat-model-use" class="button primary" ${off}>${modelDraft.chat ? 'Test & use for Chat' : 'Use interpretation model'}</button></div></div>`;
 
   const choice = role => {
     const p = profiles.find(p => p.id === modelDraft[role]), test = p?.lastTest;
@@ -752,7 +806,7 @@ function renderModelsContent() {
       : 'Matching by meaning still works with interpretation off.';
     return `<div class="model-choice"><label for="model-${role}">${role === 'embedding' ? 'Matching model' : 'Interpretation model'}</label><select id="model-${role}" ${off}>${options}</select><div class="model-info">${info}</div>`
       + `<div class="model-actions"><button class="button subtle" data-model-add="${role}" ${off}>${svg('plus')}Add local model…</button><button class="button primary" data-model-use="${role}" ${off}>${modelDraft[role] === 'off' ? 'Use embeddings only' : 'Test & use'}</button>`
-      + (p && !p.builtin && m.active[role] !== p.id ? `<button class="text-button" data-model-remove="${esc(p.id)}" ${off}>Remove from list</button>` : '') + '</div></div>';
+      + (p && !p.builtin && !Object.values(m.active).includes(p.id) ? `<button class="text-button" data-model-remove="${esc(p.id)}" ${off}>Remove from list</button>` : '') + '</div></div>';
   };
   const tuning = [['threads', 'CPU threads', [1, 2, 4, 6, 8]], ['context', 'Context size', [2048, 4096, 8192]]]
     .map(([key, label, values]) => `<label>${label} <select id="model-${key}" ${off}>${values.map(n => `<option ${+modelDraft[key] === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`).join('');
@@ -774,13 +828,20 @@ function renderModelsContent() {
 
   host.innerHTML = '<section class="panel models-panel"><h2>Local models</h2><p>Pick the models used for matching and interpretation. The current model stays active until the replacement passes its compatibility check.</p>'
     + downloads
-    + `<div class="model-grid">${['embedding', 'reasoning'].map(choice).join('')}</div>`
+    + `<div class="model-grid">${['embedding', 'reasoning'].map(choice).join('')}${chatChoice}</div>`
     + `<div class="model-tuning">${tuning}<small>Applied when you test and use an interpretation model.</small></div>`
     + `<div class="notice ${modelError || m.warning ? 'warn' : ''}" role="status" aria-live="polite">${esc(modelError || m.warning || m.message || (busy ? 'Checking compatibility…' : 'Ready.'))}</div>`
     + `<details ${open ? 'open' : ''}><summary>Compatibility details</summary><p>For matching, choose a local Transformers.js folder with config, tokenizer and ONNX files. It must support feature extraction with mean pooling. For interpretation, choose a GGUF file with a chat template that fits this PC’s CPU and memory. Larger context sizes need more memory.</p><p>Removing an entry leaves its files on your PC.</p>${prefixes}<p>Leave prefixes empty unless the matching model requires them, such as E5’s query: and passage: prefixes.</p></details>`
     + `<button id="models-reset" class="button subtle" ${off}>Reset to bundled models</button></section>`;
 
   for (const role of ['embedding', 'reasoning']) $('#model-' + role).onchange = e => { modelDraft[role] = e.target.value; modelError = ''; renderModels(); };
+  $('#model-chat').onchange = e => { modelDraft.chat = e.target.value || null; modelError = ''; renderModels(); };
+  $('#chat-model-use').onclick = () => runModelAction(async () => { const r = await api.chatModel(modelDraft.chat || null); modelDraft = null; return r; });
+  $('#chat-model-add').onclick = () => runModelAction(async () => {
+    const before = new Set(profiles.map(p => p.id)), result = await api.addModel('reasoning');
+    if (result) { const p = result.profiles?.find(p => !before.has(p.id)); if (p) modelDraft.chat = p.id; }
+    return result;
+  });
   for (const key of ['threads', 'context']) $('#model-' + key).onchange = e => modelDraft[key] = +e.target.value;
   for (const key of ['queryPrefix', 'documentPrefix']) $('#model-' + key).oninput = e => modelDraft[key] = e.target.value;
   host.querySelectorAll('[data-model-add]').forEach(b => b.onclick = () => runModelAction(async () => {
@@ -870,11 +931,11 @@ function renderHome() {
   const updates = live.filter(a => a.available), apps = live.filter(a => a.kind === 'app');
   const section = (title, items, link, emptyText) => `<section class="home-section"><div class="section-head"><h2>${title}</h2>${link && items.length ? `<button class="text-button" data-view="${link}">See all</button>` : ''}</div>`
     + (items.length ? `<div class="grid card-host">${items.map(a => card(a, 'grid')).join('')}</div>` : `<p class="section-empty">${emptyText}</p>`) + '</section>';
-  const aiOff = state.prefs.aiEnabled === false || state.models?.active?.reasoning === 'off';
+  const aiOff = state.prefs.aiEnabled === false || (state.models?.active?.reasoning === 'off' && !state.models?.active?.chat);
   $('#body').innerHTML = [...new Set(state.warnings || [])].map(w => `<div class="notice warn">${esc(w)}</div>`).join('')
     + `<div class="home"><h1>${new Date().toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'})}</h1>`
     + `<form id="ask-form" class="ask">${svg('chat')}<input id="ask-input" maxlength="2000" autocomplete="off" placeholder="${aiOff ? 'Chat is off — turn on local AI in Settings' : 'Ask about your apps or this PC'}" aria-label="Ask the local assistant" value="${esc(askDraft)}" ${aiOff ? 'disabled' : ''}><button class="send" aria-label="Ask" ${aiOff ? 'disabled' : ''}>${svg('arrow')}</button></form>`
-    + `<section class="stats"><div id="gauges" class="gauge-row">${gauges()}</div>`
+    + `<div class="section-head"><h2>This PC</h2><button class="text-button" data-view="hardware">Hardware monitor ${svg('arrow')}</button></div><section class="stats"><div id="gauges" class="gauge-row">${gauges()}</div>`
     + `<button class="stat count-stat${updates.length ? ' attention' : ''}" data-view="updates"><strong>${updates.length}</strong><span class="stat-text"><small>Updates</small><small>${updates.length ? 'Review and install' : state.packageChecked ? 'All up to date' : 'Not checked yet'}</small></span></button>`
     + `<button class="stat count-stat" data-view="all"><strong>${apps.length}</strong><span class="stat-text"><small>Apps</small><small>${state.scanning ? 'Syncing…' : 'Browse the library'}</small></span></button></section>`
     + section('Favorites', favorites, 'favorites', 'Star an app to pin it here. Hover a tile and click the star.')
@@ -892,6 +953,78 @@ function renderHome() {
   systemTimer = setInterval(() => { if (view === 'home' && !query && !document.hidden) refreshSystem(); else if (view !== 'home') { clearInterval(systemTimer); systemTimer = null; } }, 20000);
 }
 
+// Hardware collects only while this view is visible. History stays in this session.
+const knownNumber = n => typeof n === 'number' && Number.isFinite(n);
+const percent = n => knownNumber(n) ? Math.round(n) + '%' : 'Unavailable';
+function bytes(n) {
+  if (!knownNumber(n)) return 'Unavailable';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return n.toFixed(i > 1 ? 1 : 0) + ' ' + units[i];
+}
+const rate = n => knownNumber(n) ? bytes(n) + '/s' : 'Unavailable';
+const mhz = n => knownNumber(n) ? Math.round(n).toLocaleString() + ' MHz' : 'Unavailable';
+const batteryStatus = value => typeof value === 'number' ? ({1: 'Discharging', 2: 'Plugged in', 3: 'Fully charged', 4: 'Low', 5: 'Critical', 6: 'Charging', 7: 'Charging · high', 8: 'Charging · low', 9: 'Charging · critical', 11: 'Partially charged'}[value] || 'Unavailable') : value || 'Unavailable';
+function hardwareVisible() { return view === 'hardware' && !query && !document.hidden; }
+async function refreshHardware(force = false) {
+  if (hardwareLoading || !hardwareVisible() || !api.hardware) return;
+  hardwareLoading = true; hardwareError = '';
+  if (force || !hardwareInfo) retainFocus(renderHardware);
+  try {
+    const next = await api.hardware(force);
+    if (!next || !next.capturedAt) throw new Error('Hardware information is unavailable. Try Refresh.');
+    hardwareInfo = next;
+    if (hardwareHistory.at(-1)?.at !== next.capturedAt) {
+      hardwareHistory.push({at: next.capturedAt, cpu: next.cpu?.utilizationPercent, memory: next.memory?.totalBytes > 0 && knownNumber(next.memory.usedBytes) ? next.memory.usedBytes / next.memory.totalBytes * 100 : null, gpu: next.gpus?.some(g => knownNumber(g.utilizationPercent)) ? Math.max(...next.gpus.filter(g => knownNumber(g.utilizationPercent)).map(g => g.utilizationPercent)) : null, network: next.network?.some(n => knownNumber(n.receiveBytesPerSecond) || knownNumber(n.sendBytesPerSecond)) ? next.network.reduce((sum, n) => sum + (n.receiveBytesPerSecond || 0) + (n.sendBytesPerSecond || 0), 0) : null, disk: next.disks?.physical?.some(d => knownNumber(d.readBytesPerSecond) || knownNumber(d.writeBytesPerSecond)) ? next.disks.physical.reduce((sum, d) => sum + (d.readBytesPerSecond || 0) + (d.writeBytesPerSecond || 0), 0) : null});
+      hardwareHistory = hardwareHistory.slice(-60);
+    }
+  } catch (error) { hardwareError = cleanError(error); }
+  finally { hardwareLoading = false; if (view === 'hardware' && !query) retainFocus(renderHardware); }
+}
+function historyGraph(key, label, fixedMax = 100) {
+  const readings = hardwareHistory.map((h, i) => ({value: h[key], i})), available = readings.filter(h => knownNumber(h.value));
+  if (!available.length) return `<div class="hardware-history empty-history"><small>${esc(label)} history unavailable</small></div>`;
+  const max = fixedMax || Math.max(1, ...available.map(h => h.value)), points = [];
+  let segment = [];
+  readings.forEach(h => { if (!knownNumber(h.value)) { if (segment.length) points.push(segment); segment = []; } else segment.push(`${(h.i / Math.max(readings.length - 1, 1) * 300).toFixed(1)},${(52 - Math.min(h.value / max, 1) * 48).toFixed(1)}`); });
+  if (segment.length) points.push(segment);
+  return `<div class="hardware-history"><svg viewBox="0 0 300 56" role="img" aria-label="${esc(label)} history from ${esc(timestamp(hardwareHistory[0]?.at))} to ${esc(timestamp(hardwareHistory.at(-1)?.at))}"><path class="history-grid" d="M0 4H300M0 28H300M0 52H300"/>${points.map(p => `<polyline points="${p.join(' ')}"/>`).join('')}</svg><small>${readings.length < 2 ? 'Collecting history…' : `${Math.round((new Date(hardwareHistory.at(-1).at) - new Date(hardwareHistory[0].at)) / 1000)} seconds of history`}${!fixedMax ? ` · scale ${rate(max)}` : ''}</small></div>`;
+}
+function hardwareTable(headers, rows, empty) {
+  return rows.length ? `<div class="hardware-table-wrap"><table class="hardware-table"><thead><tr>${headers.map(h => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${esc(cell ?? 'Unavailable')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<p class="hardware-unavailable">${esc(empty)}</p>`;
+}
+function renderHardware() {
+  const h = hardwareInfo, cpu = h?.cpu || {}, memory = h?.memory || {}, battery = h?.battery;
+  const metric = (label, value, detail, key, max) => `<section class="hardware-metric"><small>${label}</small><strong>${esc(value)}</strong><span>${esc(detail)}</span>${historyGraph(key, label, max)}</section>`;
+  const section = (title, contents, note = '') => `<section class="panel hardware-panel"><div class="section-head"><h2>${title}</h2>${note ? `<small>${esc(note)}</small>` : ''}</div>${contents}</section>`;
+  const networkKnown = h?.network?.some(n => knownNumber(n.receiveBytesPerSecond) || knownNumber(n.sendBytesPerSecond));
+  const processRows = [...(h?.processes || [])].sort((a, b) => (hardwareSort === 'memory' ? b.memoryBytes - a.memoryBytes : (b.cpuPercent ?? -1) - (a.cpuPercent ?? -1))).slice(0, 25);
+  const gpuKnown = h?.gpus?.filter(g => knownNumber(g.utilizationPercent)) || [];
+  const sensors = h?.sensors || [], temperatures = sensors.filter(s => /temperature/i.test(s.type));
+  const cpuTemperature = temperatures.some(s => /cpu|processor|core|package/i.test(s.name + ' ' + s.hardware)), gpuTemperature = temperatures.some(s => /gpu|graphics/i.test(s.name + ' ' + s.hardware));
+  const temperatureNote = !cpuTemperature && !gpuTemperature ? 'CPU and GPU temperatures are unavailable. This PC has no supported temperature source for them.' : !cpuTemperature ? 'CPU temperature is unavailable.' : !gpuTemperature ? 'GPU temperature is unavailable.' : '';
+  $('#body').innerHTML = `<div class="hardware"><div class="hardware-toolbar"><div><p>Live view of this PC</p><small id="hardware-status" role="status">${hardwareLoading ? 'Reading hardware…' : h ? `${document.hidden ? 'Paused while hidden' : 'Refreshes every 4 seconds'} · Collected ${esc(timestamp(h.capturedAt))}` : 'Collecting the first reading…'}</small></div><div class="hardware-toolbar-actions"><button id="hardware-ask" class="button primary" ${!h || state.prefs.aiEnabled === false || state.models?.active?.reasoning === 'off' && !state.models?.active?.chat ? 'disabled' : ''}>${svg('chat')}Ask AI</button><button id="hardware-refresh" class="button subtle" ${hardwareLoading ? 'disabled' : ''}>${svg('sync')}${hardwareLoading ? 'Reading…' : 'Refresh'}</button></div></div>${hardwareError ? `<div class="notice warn" role="alert">${esc(hardwareError)}${h ? ' The last reading remains below.' : ''}</div>` : ''}`
+    + (h ? `<div class="hardware-metrics">${metric('Processor', percent(cpu.utilizationPercent), `${cpu.logicalCores || '—'} logical cores · ${mhz(cpu.frequencyMHz)}`, 'cpu', 100)}${metric('Memory', memory.totalBytes > 0 && knownNumber(memory.usedBytes) ? percent(memory.usedBytes / memory.totalBytes * 100) : 'Unavailable', `${bytes(memory.usedBytes)} of ${bytes(memory.totalBytes)}`, 'memory', 100)}${metric('Graphics', gpuKnown.length ? percent(Math.max(...gpuKnown.map(g => g.utilizationPercent))) : 'Unavailable', h.gpus?.length ? h.gpus.map(g => g.name).join(' · ') : 'No graphics reading', 'gpu', 100)}${metric('Network', networkKnown ? rate(h.network.reduce((sum, n) => sum + (n.receiveBytesPerSecond || 0) + (n.sendBytesPerSecond || 0), 0)) : 'Unavailable', 'Combined upload and download', 'network', null)}</div>`
+    + `<div class="hardware-columns">${section('Processor', `<p class="hardware-device">${esc(cpu.model || 'Processor name unavailable')}</p><p class="hardware-unavailable">${esc(cpu.frequencySource || 'Clock source unavailable')}</p><div class="core-grid">${(cpu.cores || []).map(c => `<div class="core"><span>Core ${c.index + 1}</span><strong>${percent(c.utilizationPercent)}</strong><div class="bar"><i style="width:${knownNumber(c.utilizationPercent) ? Math.max(0, Math.min(100, c.utilizationPercent)) : 0}%"></i></div><small>${mhz(c.frequencyMHz)}</small></div>`).join('') || '<p class="hardware-unavailable">Per-core readings are unavailable.</p>'}</div>`)}${section('Memory', `<dl class="hardware-facts"><dt>In use</dt><dd>${bytes(memory.usedBytes)}</dd><dt>Available</dt><dd>${bytes(memory.freeBytes)}</dd><dt>Installed</dt><dd>${bytes(memory.totalBytes)}</dd><dt>Committed</dt><dd>${bytes(memory.commitUsedBytes)} / ${bytes(memory.commitLimitBytes)}</dd></dl>${hardwareTable(['Module', 'Capacity', 'Speed'], (h.inventory?.memoryModules || []).map(m => [m.manufacturer || 'Memory module', bytes(m.capacityBytes), mhz(m.speedMHz)]), 'Memory module details are unavailable.')}`)}</div>`
+    + section('Graphics', (h.gpus || []).map(g => `<div class="hardware-device-block"><h3>${esc(g.name || 'Graphics card')}</h3><dl class="hardware-facts"><dt>Utilization</dt><dd>${percent(g.utilizationPercent)}</dd><dt>Dedicated memory</dt><dd>${bytes(g.dedicatedUsedBytes)} / ${bytes(g.dedicatedTotalBytes)}</dd><dt>Shared memory</dt><dd>${bytes(g.sharedUsedBytes)}</dd><dt>Driver</dt><dd>${esc(g.driverVersion || 'Unavailable')}</dd></dl></div>`).join('') || '<p class="hardware-unavailable">Graphics information is unavailable.</p>')
+    + section('Storage', historyGraph('disk', 'Disk throughput', null) + hardwareTable(['Physical disk', 'Capacity', 'Health', 'Activity', 'Read', 'Write'], (h.disks?.physical || []).map(d => [d.name, bytes(d.sizeBytes), d.health || 'Unavailable', percent(d.activityPercent), rate(d.readBytesPerSecond), rate(d.writeBytesPerSecond)]), 'Physical disk readings are unavailable.') + hardwareTable(['Volume', 'Used', 'Free', 'Capacity', 'Read', 'Write'], (h.disks?.logical || []).map(d => [d.name, knownNumber(d.totalBytes) && knownNumber(d.freeBytes) ? bytes(d.totalBytes - d.freeBytes) : 'Unavailable', bytes(d.freeBytes), bytes(d.totalBytes), rate(d.readBytesPerSecond), rate(d.writeBytesPerSecond)]), 'Volume information is unavailable.'))
+    + section('Network', hardwareTable(['Adapter', 'Status', 'Download', 'Upload', 'Link speed'], (h.network || []).map(n => [n.name, n.status, rate(n.receiveBytesPerSecond), rate(n.sendBytesPerSecond), knownNumber(n.linkSpeedBitsPerSecond) ? (n.linkSpeedBitsPerSecond / 1000000).toLocaleString() + ' Mbps' : 'Unavailable']), 'Network adapter readings are unavailable.'))
+    + `<div class="hardware-columns">${section('Battery', battery?.present ? `<dl class="hardware-facts"><dt>Charge</dt><dd>${percent(battery.chargePercent)}</dd><dt>Status</dt><dd>${esc(batteryStatus(battery.status))}</dd><dt>Time remaining</dt><dd>${knownNumber(battery.remainingMinutes) ? Math.round(battery.remainingMinutes) + ' minutes' : 'Unavailable'}</dd></dl>` : `<p class="hardware-unavailable">${battery?.present === false ? 'No battery detected.' : 'Battery information is unavailable.'}</p>`)}${section('Temperatures & sensors', `${temperatureNote ? `<p class="hardware-unavailable">${esc(temperatureNote)}</p>` : ''}${hardwareTable(['Sensor', 'Reading', 'Device'], sensors.map(s => [s.name || s.type, knownNumber(s.value) ? s.value.toLocaleString() + ' ' + (s.unit || '') : 'Unavailable', s.hardware || s.source]), 'Other sensor readings are unavailable.')}`, h.sources?.sensors?.status === 'cached' ? 'Cached sensor readings' : '')}</div>`
+    + section('Running processes', `<div class="process-controls"><label for="hardware-sort">Sort by</label><select id="hardware-sort"><option value="cpu" ${hardwareSort === 'cpu' ? 'selected' : ''}>CPU usage</option><option value="memory" ${hardwareSort === 'memory' ? 'selected' : ''}>Memory usage</option></select><small>Top 25 processes · readings can change between samples</small></div>${hardwareTable(['Process', 'PID', 'CPU', 'Memory'], processRows.map(p => [p.name, p.pid, percent(p.cpuPercent), bytes(p.memoryBytes)]), 'Process readings are unavailable.')}`)
+    + section('Device inventory', `<dl class="hardware-facts"><dt>Manufacturer</dt><dd>${esc(h.inventory?.manufacturer || 'Unavailable')}</dd><dt>Model</dt><dd>${esc(h.inventory?.model || 'Unavailable')}</dd><dt>Motherboard</dt><dd>${esc([h.inventory?.board?.manufacturer, h.inventory?.board?.product].filter(Boolean).join(' · ') || 'Unavailable')}</dd><dt>BIOS</dt><dd>${esc(h.inventory?.biosVersion || 'Unavailable')}</dd></dl>${h.inventory?.graphics?.length ? hardwareTable(['Graphics device', 'Video memory', 'Driver', 'Display'], h.inventory.graphics.map(g => [g.name, bytes(g.dedicatedTotalBytes), g.driverVersion || 'Unavailable', knownNumber(g.width) && knownNumber(g.height) ? g.width + ' × ' + g.height + (knownNumber(g.refreshRateHz) ? ' · ' + g.refreshRateHz + ' Hz' : '') : 'Unavailable']), '') : ''}`, h.sources?.inventory?.capturedAt ? `Collected ${timestamp(h.sources.inventory.capturedAt)} · refreshed less often` : '')
+    + (h.errors?.length ? `<details class="hardware-diagnostics"><summary>Unavailable readings · ${h.errors.length}</summary>${h.errors.map(e => `<p><strong>${esc(e.source)}</strong> · ${esc(e.message)}</p>`).join('')}</details>` : '') : '<div class="empty"><h3>Reading this PC</h3><p>CPU, memory, graphics, storage and network readings appear here.</p></div>') + '</div>';
+  $('#hardware-refresh').onclick = () => refreshHardware(true);
+  $('#hardware-ask').onclick = () => sendChat('Explain my current hardware readings. What is busy, how much memory and disk space is available, and are any readings unavailable?', {hardware: true, hardwareCapturedAt: hardwareInfo?.capturedAt});
+  $('#hardware-sort')?.addEventListener('change', e => { hardwareSort = e.target.value; retainFocus(renderHardware); });
+  if (!hardwareTimer) { hardwareTimer = setInterval(() => { if (hardwareVisible()) refreshHardware(); }, 4000); }
+  if (!hardwareInfo && !hardwareLoading && !hardwareError) refreshHardware();
+}
+document.addEventListener('visibilitychange', () => {
+  if (view !== 'hardware' || query) return;
+  if (!document.hidden) refreshHardware();
+  else { const status = $('#hardware-status'); if (status) status.textContent = 'Paused while hidden · ' + (hardwareInfo ? 'Collected ' + timestamp(hardwareInfo.capturedAt) : 'No reading yet'); }
+});
+
 // Chat: the model answers from the library, a system snapshot and the lookups it asked for. Every action is a button under its reply, and each one asks before it runs.
 const CHAT_EXAMPLES = ['What is using the most memory right now?', 'Has anything crashed this week?', 'What is taking up space on my disk?', 'What starts with Windows?'];
 function chatSuggestions(m, index) {
@@ -903,8 +1036,8 @@ function chatSuggestions(m, index) {
       if (!a || a.hidden) return '';
       const id = esc(a.id), detail = a.available ? `${a.version || ''} → ${a.available}` : a.kind === 'setting' ? 'Windows setting' : a.publisher || a.category || '';
       return row(a, a.name, detail, (s.uninstall && a.kind === 'app' ? act('uninstall', 'Uninstall…') : '')
-        + (a.available ? `<button class="button subtle" data-chat-update="${id}">Update…</button>` : '')
-        + (a.launch && !s.uninstall ? `<button class="button primary" data-chat-open="${id}" ${a.unavailable ? 'disabled' : ''}>Open</button>` : '')
+        + (a.available && !a.updateBlocked ? `<button class="button subtle" data-chat-update="${id}">Update…</button>` : '')
+        + (a.launch && !s.uninstall ? `<button class="button primary" data-chat-open="${id}" ${a.unavailable ? 'disabled' : ''} ${chatOpening.has(a.id) ? 'aria-disabled="true" aria-busy="true"' : ''}>${chatOpening.has(a.id) ? 'Opening…' : 'Open'}</button>` : '')
         + `<button class="icon-button" data-chat-info="${id}" aria-label="Details for ${esc(a.name)}" title="Details">${svg('dots')}</button>`);
     }
     const subject = {id: s.type + ':' + s.name, name: String(s.name || '?')};
@@ -912,7 +1045,7 @@ function chatSuggestions(m, index) {
     if (s.type === 'startup') return row(subject, s.name, 'Starts with Windows', act('startup', 'Disable…'));
     if (s.type === 'package') return row(subject, s.name, `${s.id} · ${s.version || 'latest'} · WinGet catalog`, act('install', 'Install…', 'primary'));
     if (s.type === 'updates') {
-      const ready = (s.ids || []).filter(id => item(id)?.available).length;
+      const ready = (s.ids || []).filter(id => item(id)?.available && !item(id)?.updateBlocked).length;
       return ready > 1 ? row({id: 'updates', name: 'Updates'}, plural(ready, 'app update'), 'You choose which ones install', act('updates', 'Review all…', 'primary')) : '';
     }
     return '';
@@ -927,15 +1060,21 @@ function chatAct(index, i, verb) {
   else if (verb === 'end') confirmEnd(s, done('Ended'));
   else if (verb === 'startup') confirmStartup(s, done('Disabled'));
   else if (verb === 'install') inspectCatalog(s);
-  else if (verb === 'updates') { const apps = (s.ids || []).map(item).filter(a => a?.available); if (apps.length) reviewUpdates(apps); }
+  else if (verb === 'updates') { const apps = (s.ids || []).map(item).filter(a => a?.available && !a.updateBlocked); if (apps.length) reviewUpdates(apps); }
 }
 function chatMessage(m, index) {
   if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
   return `<div class="msg bot"><span class="avatar">${svg('mark')}</span><div class="bubble${m.error ? ' error' : ''}">${esc(m.error || m.content)}${m.stopped ? '<small class="stopped">Stopped</small>' : ''}${m.truncated ? '<small class="stopped">Reached the length limit for one reply. Ask it to continue.</small>' : ''}`
-    + `${m.looked?.length ? `<small class="looked">Checked ${esc(m.looked.join(', '))}</small>` : ''}${chatSuggestions(m, index)}</div></div>`;
+    + `${m.looked?.length ? `<small class="looked">Checked ${esc(m.looked.join(', '))}</small>` : ''}${chatEvidence(m, index)}${chatSuggestions(m, index)}</div></div>`;
+}
+const timestamp = value => { const d = new Date(value); return value && Number.isFinite(d.getTime()) ? d.toLocaleString() : 'Time unavailable'; };
+function chatEvidence(m, index) {
+  if (!m.evidence?.length) return '';
+  const available = m.evidence.filter(e => e.available).length;
+  return `<details class="evidence" data-evidence="${index}" ${evidenceOpen.has(index) ? 'open' : ''}><summary>${svg('list')}Sources & facts <span>${available} available${available < m.evidence.length ? ` · ${m.evidence.length - available} unavailable` : ''}</span></summary><div class="evidence-list">${m.evidence.map(e => `<section class="evidence-source"><div class="evidence-title"><strong>${esc(e.title || e.id)}</strong><span class="pill${e.available ? '' : ' warn'}">${e.available ? e.cached ? 'Cached facts' : 'Collected facts' : 'Unavailable'}</span></div><small>Collected ${esc(timestamp(e.collectedAt))}${e.expiresAt ? ` · Refresh after ${esc(timestamp(e.expiresAt))}` : ''}</small>${e.truncated ? '<small class="evidence-limit">Some facts were omitted to fit this model.</small>' : ''}${e.partial ? '<small class="evidence-limit">Some readings were unavailable.</small>' : ''}<pre>${esc(e.available ? e.text : e.error || e.text || 'This information could not be read.')}</pre></section>`).join('')}</div>${index === chat.length - 1 && !m.stopped && !m.error ? `<div class="evidence-refresh"><small>Refresh the sources and answer again.</small><button class="button subtle" data-chat-refresh="${index}" ${chatBusy ? 'disabled' : ''}>${svg('sync')}Refresh</button></div>` : ''}</details>`;
 }
 function renderChat() {
-  const log = $('#chat-log'), pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const log = $('#chat-log'), oldTop = log?.scrollTop || 0, pinned = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   const chatProfile = state.models?.profiles?.find(p => p.id === state.models?.active?.chat), engine = chatProfile ? state.chatEngine : state.reasoner;
   const off = state.prefs.aiEnabled === false ? 'Local AI is turned off.' : state.models?.active?.reasoning === 'off' && !chatProfile ? 'No chat model is selected.' : '';
   const pending = chatBusy ? `<div class="msg bot"><span class="avatar working">${svg('mark')}</span><div class="bubble"><span id="chat-stream">${esc(chatStream)}</span>${chatStream ? '<i class="caret"></i>' : `<span class="typing" id="chat-status">${esc(chatStatus || 'Thinking…')}</span>`}</div></div>` : '';
@@ -948,6 +1087,8 @@ function renderChat() {
     + `<small class="chat-note">${esc(chatProfile?.name || modelName('reasoning'))} · ${engine?.device ? 'running on the ' + esc(engine.device) : 'on this PC'} · answers can be wrong, so check anything important</small></div>`;
   const next = $('#chat-log');
   if (pinned) next.scrollTop = next.scrollHeight;
+  else next.scrollTop = oldTop;
+  $('#body').querySelectorAll('[data-evidence]').forEach(el => el.ontoggle = () => { if (!el.isConnected) return; const n = +el.dataset.evidence; if (el.open) evidenceOpen.add(n); else evidenceOpen.delete(n); });
   const input = $('#chat-input');
   const fit = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; };
   fit();
@@ -959,12 +1100,32 @@ function renderChat() {
     const pick = name => e.target.closest(`[data-chat-${name}]`)?.dataset['chat' + name[0].toUpperCase() + name.slice(1)];
     const ask = e.target.closest('[data-ask]'), go = e.target.closest('[data-view]');
     if (pick('act')) { const [index, i, verb] = pick('act').split(':'); chatAct(+index, +i, verb); }
-    else if (pick('open')) launch(pick('open'));
+    else if (pick('refresh')) refreshChatEvidence(+pick('refresh'));
+    else if (pick('open')) openFromChat(pick('open'));
     else if (pick('update')) { const a = item(pick('update')); if (a?.available) reviewUpdates([a]); }
     else if (pick('info')) openDetails(pick('info'));
     else if (ask) sendChat(ask.dataset.ask);
     else if (go) navigate(go.dataset.view);
   };
+}
+async function openFromChat(id) {
+  if (chatOpening.has(id)) return;
+  chatOpening.add(id); render();
+  try { await launch(id); } finally { chatOpening.delete(id); if (view === 'chat') render(); }
+}
+async function refreshChatEvidence(index) {
+  if (chatBusy || index !== chat.length - 1 || chat[index]?.role !== 'assistant') return;
+  const epoch = chatEpoch;
+  chatBusy = true; chatStream = ''; chatStatus = 'Refreshing sources…'; render();
+  try {
+    const messages = chat.slice(0, index).filter(m => !m.error).map(({role, content}) => ({role, content}));
+    const r = await api.chat(messages, {refreshEvidence: true});
+    if (epoch === chatEpoch) chat[index] = chatReply(r);
+  } catch (error) { if (epoch === chatEpoch) toast(cleanError(error), true); }
+  finally { if (epoch === chatEpoch) { chatBusy = false; chatStream = ''; if (view === 'chat' && !query) render(); } }
+}
+function chatReply(r) {
+  return {role: 'assistant', content: String(r.reply || ''), truncated: !!r.truncated, looked: Array.isArray(r.looked) ? r.looked : [], evidence: Array.isArray(r.evidence) ? r.evidence : [], suggestions: Array.isArray(r.suggestions) ? r.suggestions : []};
 }
 function updateChatStream() {
   const el = $('#chat-stream');
@@ -980,11 +1141,11 @@ function updateChatStatus() {
 }
 function newChat() {
   if (chatBusy) api.stopChat().catch(() => {});
-  chatEpoch++; chat = []; chatBusy = false; chatStream = '';
+  chatEpoch++; chat = []; chatBusy = false; chatStream = ''; evidenceOpen.clear();
   render();
   $('#chat-input')?.focus();
 }
-async function sendChat(text) {
+async function sendChat(text, options = {}) {
   text = String(text || '').trim();
   if (!text || chatBusy) return;
   const epoch = chatEpoch;
@@ -995,8 +1156,8 @@ async function sendChat(text) {
   const log = $('#chat-log');
   if (log) log.scrollTop = log.scrollHeight;
   try {
-    const r = await api.chat(chat.filter(m => !m.error).map(({role, content}) => ({role, content})));
-    if (epoch === chatEpoch) chat.push({role: 'assistant', content: String(r.reply || ''), truncated: !!r.truncated, looked: Array.isArray(r.looked) ? r.looked : [], suggestions: Array.isArray(r.suggestions) ? r.suggestions : []});
+    const r = await api.chat(chat.filter(m => !m.error).map(({role, content}) => ({role, content})), options);
+    if (epoch === chatEpoch) chat.push(chatReply(r));
   } catch (e) {
     if (epoch !== chatEpoch) return;
     const message = cleanError(e);
@@ -1090,7 +1251,7 @@ api.onChange(data => {
     if (chatBusy && typeof data.chatStatus.text === 'string') { chatStatus = data.chatStatus.text; updateChatStatus(); }
     return;
   }
-  if ('chatEngine' in data) { state.chatEngine = data.chatEngine; if (!data.ai && !data.reasoner && !data.models && !data.items) return; }
+  if ('chatEngine' in data) { state.chatEngine = data.chatEngine; updateFooter(); if (!data.ai && !data.reasoner && !data.models && !data.items) return; }
   if (data.focusSearch) { $('#search').focus(); return; }
   if (data.error) { toast(data.error, true); return; }
   if (data.models) state.models = data.models;

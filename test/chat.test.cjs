@@ -5,7 +5,7 @@ const items=[{id:'a',name:'Paint',kind:'app',category:'Creative',version:'1.0',l
 test('system snapshots tolerate single values, missing fields and bad numbers',()=>{
  assert.deepEqual(system.gpus,['Test GPU']);assert.equal(system.disks[0].freeGb,125);assert.equal(system.byMemory[0].memoryGb,2);
  const empty=shape({});assert.deepEqual(empty.disks,[]);assert.equal(empty.battery,null);assert.match(describe(empty),/Memory:/);
- const text=describe(system);assert.match(text,/Drive C:: 125 GB free of 500 GB \(75% full\)/);assert.match(text,/start with Windows \(2\): Alpha, Beta/);assert.match(text,/browser 2 GB \(3 processes\)/);
+ const text=describe(system);assert.match(text,/Drive C:: 125 GB free of 500 GB \(75% full\)/);assert.match(text,/Registered startup entries \(2; enabled state not checked\): Alpha, Beta/);assert.match(text,/browser 2 GB \(3 processes\)/);
 });
 test('system snapshots are cached and survive a failed read',async()=>{
  let reads=0;const info=new SystemInfo({read:async()=>{reads++;throw new Error('no shell');}});

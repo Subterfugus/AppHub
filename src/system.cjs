@@ -47,14 +47,14 @@ function describe(s,{processes=true,startup=true}={}){
  if(processes&&s.byMemory.length)lines.push('Programs using the most memory now: '+s.byMemory.map(p=>`${p.name} ${p.memoryGb} GB${p.count>1?` (${p.count} processes)`:''}`).join(', '));
  if(processes)lines.push('Programs using the most CPU now: '+(s.byCpu.length?s.byCpu.map(p=>`${p.name} ${p.cpu}%`).join(', '):'nothing significant'));
  if(s.processCount)lines.push(`Running processes: ${s.processCount}`);
- if(startup&&s.startup.length)lines.push(`Programs that start with Windows (${s.startup.length}): ${s.startup.join(', ')}`);
+ if(startup&&s.startup.length)lines.push(`Registered startup entries (${s.startup.length}; enabled state not checked): ${s.startup.join(', ')}. Use the startup lookup to check which are enabled.`);
  return lines.join('\n');
 }
 class SystemInfo{
  constructor({read=()=>ps(script,{timeout:20000}),maxAgeMs=20000}={}){Object.assign(this,{read,maxAgeMs});this.cached=null;this.at=0;this.pending=null;}
- snapshot(){
-  if(this.cached&&Date.now()-this.at<this.maxAgeMs)return Promise.resolve(this.cached);
-  return this.pending||=(async()=>{try{let raw={};try{const r=await this.read();if(r.code===0)raw=JSON.parse(r.out);}catch{}this.cached=shape(raw);this.at=Date.now();return this.cached;}finally{this.pending=null;}})();
+ snapshot(force=false){
+  if(!force&&this.cached&&Date.now()-this.at<this.maxAgeMs)return Promise.resolve(this.cached);
+  return this.pending||=(async()=>{try{let raw={},warning=null;try{const r=await this.read();if(r.code===0)raw=JSON.parse(r.out);else warning='Windows details could not be collected. Only basic CPU and memory facts are available.';}catch{warning='Windows details could not be collected. Only basic CPU and memory facts are available.';}this.cached={...shape(raw),warning};this.at=Date.now();return this.cached;}finally{this.pending=null;}})();
  }
 }
 module.exports={SystemInfo,shape,describe};

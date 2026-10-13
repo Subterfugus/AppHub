@@ -33,7 +33,7 @@ test('lookups are cached, shared while pending, and never fail the chat',async()
  let reads=0,now=1000;const lookups=new Lookups({now:()=>now,topics:{ok:{title:'ok',ttl:500,read:async arg=>{reads++;return {arg};},describe:d=>'arg '+d.arg},bad:{title:'bad',ttl:500,read:async()=>{throw new Error('denied');},describe:()=>''}}});
  const [first,second]=await Promise.all([lookups.get('ok','x'),lookups.get('ok','x')]);assert.equal(first,second);assert.equal(reads,1);assert.equal(first.text,'arg x');
  await lookups.get('ok','y');assert.equal(reads,2);now+=600;await lookups.get('ok','x');assert.equal(reads,3);lookups.forget('ok');await lookups.get('ok','x');assert.equal(reads,4);
- assert.equal(await lookups.get('bad'),null);assert.equal(await lookups.get('unknown'),null);
+ const failed=await lookups.get('bad');assert.equal(failed.available,false);assert.equal(failed.data,null);assert.match(failed.text,/Unavailable:/);assert.equal(await lookups.get('unknown'),null);
 });
 test('lookup wording keeps what can be closed apart from Windows, and enabled startup entries apart from disabled ones',()=>{
  const text=TOPICS.processes.describe(processes.data);assert.match(text,/could close, by memory: browser 2 GB \(3 processes\), renderer 0\.5 GB/);assert.match(text,/must stay running, by memory: svchost 1\.5 GB/);assert.match(text,/Not responding: frozen/);
@@ -42,7 +42,7 @@ test('lookup wording keeps what can be closed apart from Windows, and enabled st
 });
 test('catalog search drops filler words and retries with fewer',async()=>{
  const asked=[];const table='Name         Id            Version\n-----------------------------------\nOpen Editor  Open.Editor   4.0\n';
- const runner=async(_file,args)=>{const q=args[2];asked.push(q);return {code:q==='video'?0:1,out:q==='video'?table:'No package found'};};
+ const runner=async(_file,args)=>{const q=args[2];asked.push(q);return {code:q==='video'?0:0x8A150014,out:q==='video'?table:'No package found'};};
  const result=await TOPICS.catalog.read('free video editor app',runner);assert.deepEqual(asked,['video editor','video']);assert.equal(result.term,'video');assert.deepEqual(result.packages,[{name:'Open Editor',id:'Open.Editor',version:'4.0',source:'winget'}]);
 });
 test('keywords choose lookups first and the model fills in only when they find nothing',()=>{
@@ -62,7 +62,7 @@ test('destructive buttons are offered only when the question or a lookup calls f
  assert.deepEqual(asked.chat.labels.filter(l=>l.startsWith('Uninstall ')),['Uninstall Paint','Uninstall Sketch']);
  assert.deepEqual(asked.chat.labels.filter(l=>l.startsWith('End ')),['End frozen','End browser','End renderer']);
  assert.deepEqual(asked.chat.labels.filter(l=>l.startsWith('Disable startup: ')),['Disable startup: Alpha']);assert(asked.chat.labels.includes('Install Open Editor'));
- assert.match(asked.chat.system,/RUNNING PROGRAMS \(looked up just now\)/);assert.doesNotMatch(asked.chat.system,/Programs using the most memory now/);assert.doesNotMatch(asked.chat.system,/Programs that start with Windows \(1\)/);
+ assert.match(asked.chat.system,/RUNNING PROGRAMS \(collected /);assert.doesNotMatch(asked.chat.system,/Programs using the most memory now/);assert.doesNotMatch(asked.chat.system,/Registered startup entries \(1/);
 });
 test('buttons resolve to typed actions only for things the reply names',()=>{
  const built=buildChat({turns:[{role:'user',content:'remove Paint, and close what is slow'}],items,related:[items[0]],system,lookups:[processes,startup,catalog]});

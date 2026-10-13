@@ -2,6 +2,16 @@
 
 Record user-visible behavior, relevant fixes and validation here for every release. Keep entries free of personal paths, names, machine inventories, credentials and private screenshots.
 
+## 1.7.0 — 2026-10-12
+
+- Added a separate Hardware page with live CPU/per-core, memory/commit, GPU/VRAM, storage, network, battery, process and component details; visible-only refresh and session history graphs. Ask AI uses the same hardware collector. Unsupported temperature/fan sources are explicitly unavailable.
+- Chat now exposes timestamped Sources & facts, cached/unavailable/partial status and the exact bounded facts supplied to the model. Refresh recollects the latest reply's evidence and answers again.
+- Chat can use an independently selected registered GGUF model, including custom models, while Search retains its own configuration. Failed activation restores the previous selection.
+- Added persistent per-package update exclusions and version skips, respected by single updates, bulk updates and Chat suggestions, and retained in export/restore preferences.
+- Fixed overlapping model residency with one shared inference lane and actual process-exit barriers. Embedding retrieval unloads before generation; search uses keyword matching while Chat is busy. Exact names/prefixes avoid model startup. Stop and AI-off cancel pending work without late results restarting inference.
+- Fixed native shutdown/fallback races, failed download stream handling, lookup freshness and failure reporting, bounded Chat context, and raw process/startup identities behind display labels.
+- Validation: 136 unit/IPC tests, 31 hidden renderer checks, 23 full hidden Electron integration checks and 9 packaged lifecycle checks passed, including live Windows hardware collection, hardware-grounded Chat and both 60-second idle exits. Real bundled/custom inference checks observed a maximum of one resident model. Installed-app checks are recorded locally; private reports and inventories are excluded from this repository.
+
 ## 1.6.1 — 2026-10-12
 
 - Chat replies are no longer shortened or altered. The repetition guard added in 1.6.0 removed any sentence it had seen before, dropped a leading full stop (".NET Runtime" became "NET Runtime") and split on decimal points. It now leaves a reply exactly as written and acts only when one long sentence appears three times, cutting at the point the repetition began.

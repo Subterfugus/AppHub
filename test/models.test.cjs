@@ -9,6 +9,12 @@ function fixture(t,probe=async()=>({ok:true,dimensions:3,message:'Compatible'}))
  const embedding=path.join(root,'embedding');fs.mkdirSync(path.join(embedding,'onnx'),{recursive:true});fs.writeFileSync(path.join(embedding,'config.json'),JSON.stringify({model_type:'bert'}));fs.writeFileSync(path.join(embedding,'tokenizer.json'),'{}');fs.writeFileSync(path.join(embedding,'onnx/model_quantized.onnx'),Buffer.alloc(2048,7));
  const data=path.join(root,'data'),models=path.join(root,'bundled');const make=()=>new ModelStore({data,models,probe});return {root,embedding,data,models,make,store:make()};
 }
+
+test('Chat selection rolls back when saving fails, including switching back to shared inference',async t=>{
+ const f=fixture(t);f.store.save=()=>{throw new Error('Synthetic disk full');};
+ await assert.rejects(f.store.activateChat('reasoning:qwen3'),/keeps its current model/);assert.equal(f.store.active.chat,null);
+ f.store.active.chat='reasoning:qwen3';await assert.rejects(f.store.activateChat(null),/previous model is still selected/);assert.equal(f.store.active.chat,'reasoning:qwen3');assert.equal(f.store.busy,false);
+});
 test('failed compatibility check preserves selected model and limits',async t=>{const f=fixture(t,async()=>{throw new Error('Unsupported architecture');});await f.store.add('embedding',f.embedding);const id=f.store.profiles.at(-1).id,before=f.store.snapshot();await assert.rejects(f.store.activate('embedding',id,{threads:8,queryPrefix:'query: '}),/previous model.*Unsupported architecture/);assert.deepEqual(f.store.active,before.active);assert.deepEqual(f.store.settings,before.settings);assert.equal(f.store.profiles.at(-1).lastTest.ok,false);assert.equal(f.store.busy,false);assert.deepEqual(f.make().active,before.active);});
 test('successful activation persists custom identity, limits and check result',async t=>{const f=fixture(t);await f.store.add('embedding',f.embedding);const p=f.store.profiles.at(-1);await f.store.activate('embedding',p.id,{threads:2,context:2048,queryPrefix:'query: ',documentPrefix:'passage: '});const reloaded=f.make();assert.equal(reloaded.active.embedding,p.id);assert.equal(reloaded.settings.documentPrefix,'passage: ');assert.equal(reloaded.settings.threads,4);assert.equal(reloaded.profiles.at(-1).lastTest.dimensions,3);assert.ok(reloaded.profiles.at(-1).validatedAt);assert.equal(reloaded.snapshot().profiles.at(-1).fingerprint,undefined);});
 test('changed or missing custom files restore bundled selection on startup',async t=>{const f=fixture(t);await f.store.add('embedding',f.embedding);await f.store.activate('embedding',f.store.profiles.at(-1).id);fs.appendFileSync(path.join(f.embedding,'onnx/model_quantized.onnx'),'changed');const changed=f.make();assert.equal(changed.active.embedding,'embedding:minilm');assert.match(changed.warning,/missing or changed/);fs.unlinkSync(path.join(f.embedding,'tokenizer.json'));assert.equal(f.make().active.embedding,'embedding:minilm');});
@@ -63,6 +69,11 @@ function download(t,{corrupt=false,memory=32*1073741824}={}){
  const make=()=>new ModelStore({data:path.join(root,'data'),models:path.join(root,'bundled'),probe:async()=>({ok:true,message:'Compatible'}),downloads:[item],fetcher,totalMemory:memory});
  return {root,body,requests,item,make,store:make(),target:path.join(root,'data','models','test.gguf')};
 }
+
+test('download file-open errors reject normally and release download state',async t=>{
+ const f=download(t);fs.mkdirSync(f.target+'.partial',{recursive:true});
+ await assert.rejects(f.store.fetchModel('test-model'),/EISDIR|EPERM|illegal operation|directory/);assert.equal(f.store.downloading,null);assert.equal(f.store.abort,null);assert.equal(f.store.profiles.some(p=>p.download),false);
+});
 test('an optional model is downloaded, verified, registered and survives a restart',async t=>{
  const f=download(t);assert.deepEqual(f.store.snapshot().downloads,[{id:'test-model',name:'Test Model',bytes:f.body.length,memoryGb:16,fits:true,profile:null}]);
  const id=await f.store.fetchModel('test-model');assert.equal(f.store.busy,false);assert.equal(f.store.downloading,null);assert.deepEqual(fs.readFileSync(f.target),f.body);assert.equal(f.store.snapshot().downloads[0].profile,id);assert.equal(f.store.active.reasoning,'reasoning:qwen3');assert.equal(f.store.active.chat,null);

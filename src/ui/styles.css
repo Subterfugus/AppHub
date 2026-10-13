@@ -465,6 +465,78 @@ button.stat:hover .ring circle:first-child { stroke: var(--pressed); }
 @keyframes blink { 50% { opacity: 0; } }
 .typing { color: var(--text-3); }
 .looked { display: block; margin-top: 8px; color: var(--text-3); white-space: normal; }
+.evidence { margin-top: 12px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); white-space: normal; font-size: 12px; }
+.evidence > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; color: var(--text-2); }
+.evidence > summary::before { content: '›'; font-size: 18px; line-height: 1; }
+.evidence[open] > summary::before { transform: rotate(90deg); }
+.evidence > summary .ico { width: 15px; height: 15px; }
+.evidence > summary > span { margin-left: auto; color: var(--text-3); font-size: 11px; }
+.evidence-list { padding: 0 12px; }
+.evidence-source { padding: 12px 0; border-top: 1px solid var(--line); }
+.evidence-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.evidence-source small { display: block; margin-top: 5px; color: var(--text-3); }
+.evidence-source pre { margin-bottom: 0; font-size: 11px; }
+.evidence-refresh { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding: 10px 12px; }
+.evidence-refresh small { color: var(--text-3); }
+.chat-model-choice { grid-column: 1 / -1; }
+.policy-row { align-items: flex-start; }
+.policy-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-2); }
+.policy-toggle input { margin: 0; }
+.policy-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin-top: 5px; font-size: 12px; }
+.policy-note, .policy-actions > small { color: var(--text-3); }
+.plan-entry > .policy-held { display: block; margin-top: 5px; color: var(--warn); }
+.saved-policies { margin-top: 20px; }
+.saved-policy { padding: 12px 0; }
+.saved-policy + .saved-policy { border-top: 1px solid var(--line); }
+.hardware { max-width: 1240px; }
+.hardware-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.hardware-toolbar p { font-size: 14px; margin-bottom: 3px; }
+.hardware-toolbar small { color: var(--text-3); }
+.hardware-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hardware-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.hardware-metric { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface); padding: 16px 16px 10px; }
+.hardware-metric > small { display: block; color: var(--text-2); }
+.hardware-metric > strong { display: block; margin: 3px 0; font-size: 27px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.hardware-metric > span { display: block; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hardware-history { margin-top: 15px; min-height: 66px; }
+.hardware-history svg { display: block; width: 100%; height: 56px; overflow: visible; }
+.hardware-history polyline { stroke: var(--accent-fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; fill: none; vector-effect: non-scaling-stroke; }
+.hardware-history .history-grid { fill: none; stroke: var(--line); stroke-width: 1; }
+.hardware-history small { display: block; margin-top: 4px; font-size: 10px; color: var(--text-3); }
+.empty-history { display: flex; align-items: center; }
+.hardware-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+.hardware-panel { min-width: 0; max-width: none; margin: 0 0 16px; padding: 18px; }
+.hardware-panel .section-head { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.hardware-panel .section-head > small { font-size: 11px; color: var(--text-3); }
+.hardware-device { color: var(--text-2); margin: 0 0 12px; font-size: 12px; }
+.hardware-device-block + .hardware-device-block { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
+.hardware-device-block h3 { font-size: 13px; margin-bottom: 10px; }
+.core-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(94px, 1fr)); gap: 8px; }
+.core { padding: 9px; border: 1px solid var(--line); border-radius: var(--r-1); background: var(--bg); font-size: 11px; }
+.core > strong { float: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.core > small { font-size: 10px; color: var(--text-3); }
+.core .bar { margin: 8px 0 5px; height: 3px; }
+.hardware-facts { display: grid; grid-template-columns: minmax(100px, 140px) minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 12px; }
+.hardware-facts dt { color: var(--text-3); }
+.hardware-facts dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.hardware-unavailable { margin: 4px 0 12px; color: var(--text-3); font-size: 12px; }
+.hardware-table-wrap { max-width: 100%; overflow: auto; }
+.hardware-facts + .hardware-table-wrap { margin-top: 16px; }
+.hardware-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.hardware-table th { color: var(--text-3); font-weight: 500; font-size: 11px; white-space: nowrap; }
+.hardware-table td { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.hardware-table th, .hardware-table td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); }
+.hardware-table td:first-child { min-width: 130px; color: var(--text); overflow-wrap: anywhere; }
+.hardware-table td:not(:first-child) { white-space: nowrap; }
+.hardware-table tr:last-child td { border-bottom: 0; }
+.hardware-table-wrap + .hardware-table-wrap { margin-top: 16px; }
+.process-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+.process-controls small { color: var(--text-3); }
+.hardware-diagnostics { margin: 0 0 24px; color: var(--text-3); font-size: 12px; }
+.hardware-diagnostics summary { cursor: pointer; padding: 8px 0; }
+.hardware-diagnostics p { padding: 5px 0; }
+@media (max-width: 1120px) { .hardware-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .hardware-columns { grid-template-columns: minmax(0, 1fr); gap: 0; } .evidence > summary { flex-wrap: wrap; } }
 .suggestion .pill { flex-shrink: 0; }
 .download-row { align-items: center; }
 .download-row .bar { margin-top: 8px; max-width: 420px; }

@@ -1,5 +1,5 @@
 const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const os=require('node:os');
-const {once}=require('node:events');
+const {pipeline}=require('node:stream/promises');
 const DEFAULTS={threads:4,context:8192,queryPrefix:'',documentPrefix:''};
 // Optional larger chat models. One is fetched only when the user asks for it, from a pinned revision, and verified before it is used.
 const DOWNLOADS=[{id:'qwen3-8b',name:'Qwen3 8B',file:'Qwen3-8B-Q4_K_M.gguf',url:'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf',sha256:'d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785',bytes:5027783488,memoryGb:16}];
@@ -54,8 +54,8 @@ class ModelStore{
     let have=fs.existsSync(part)?fs.statSync(part).size:0;if(have>=d.bytes){fs.rmSync(part);have=0;}
     const disk=await fs.promises.statfs(dir);if(disk.bavail*disk.bsize<d.bytes-have+1073741824)throw new Error('Not enough free disk space for '+d.name);
     const response=await this.fetcher(d.url,{headers:have?{Range:`bytes=${have}-`}:{},signal:abort.signal,redirect:'follow'});if(!response.ok)throw new Error('The download server answered '+response.status);if(have&&response.status!==206)have=0;
-    const out=fs.createWriteStream(part,{flags:have?'a':'w'});this.downloading.received=have;let last=0;
-    try{for await(const chunk of response.body){if(!out.write(chunk))await once(out,'drain');this.downloading.received+=chunk.length;if(Date.now()-last>400){last=Date.now();this.notify();}}}finally{await new Promise(done=>out.end(done));}
+    this.downloading.received=have;let last=0;const store=this;
+    await pipeline(response.body,async function*(source){for await(const chunk of source){store.downloading.received+=chunk.length;if(Date.now()-last>400){last=Date.now();store.notify();}yield chunk;}},fs.createWriteStream(part,{flags:have?'a':'w'}),{signal:abort.signal});
     this.downloading.stage='Verifying';this.notify();
     if(fs.statSync(part).size!==d.bytes||await sha256(part)!==d.sha256){fs.rmSync(part,{force:true});throw new Error('The download did not match its checksum and was discarded. Try again.');}
     fs.renameSync(part,target);
@@ -87,10 +87,11 @@ class ModelStore{
  remove(id){if(this.busy)throw new Error('Wait for the model check to finish');const p=this.profiles.find(p=>p.id===id);if(!p||p.builtin||Object.values(this.active).includes(id))throw new Error('Only inactive custom models can be removed');this.profiles=this.profiles.filter(p=>p.id!==id);this.save();this.notify();return this.snapshot();}
  // Chat may have its own, usually larger, model so that search keeps the faster one. Passing null shares the search model again.
  async activateChat(id){return this.operation('Testing the chat model on this PC…',async()=>{
-  if(id==null){this.active.chat=null;this.message='Chat uses the search model again.';this.save();return;}
+  if(id==null){const prior=this.active.chat;this.active.chat=null;try{this.save();}catch(e){this.active.chat=prior;throw new Error('The Chat model preference could not be saved. Your previous model is still selected. '+e.message);}this.message='Chat uses the search model again.';return;}
   const profile=this.profiles.find(p=>p.id===id&&p.role==='reasoning');if(!profile)throw new Error('Choose an available model');const inspected=profile.builtin?{}:await inspect('reasoning',profile.location),start=Date.now();
+  const priorActive={...this.active},priorProfile={...profile};
   try{const result=await this.probe({...profile,...inspected},this.settings);if(!result?.ok)throw new Error('The model did not pass the compatibility check');Object.assign(profile,inspected,{validatedAt:new Date().toISOString(),lastTest:{...result,elapsedMs:Date.now()-start}});this.active.chat=profile.id;this.warning=null;this.message=profile.name+' passed its check and now answers in Chat.';this.save();}
-  catch(e){profile.lastTest={ok:false,message:String(e.message).slice(0,500),elapsedMs:Date.now()-start};this.message='Compatibility check failed. Chat keeps its current model.';try{this.save();}catch{}throw new Error(this.message+' '+e.message);}
+  catch(e){this.active=priorActive;Object.assign(profile,priorProfile);profile.lastTest={ok:false,message:String(e.message).slice(0,500),elapsedMs:Date.now()-start};this.message='The Chat model could not be selected. Chat keeps its current model.';try{this.save();}catch{}throw new Error(this.message+' '+e.message);}
  });}
  config(role,profile=this.profiles.find(p=>p.id===this.active[role]),settings=this.settings){if(role!=='embedding'&&!profile)return null;return role!=='embedding'?{modelFile:profile.location,name:profile.name,threads:settings.threads,context:settings.context}:{modelPath:profile.location,name:profile.name,dtype:profile.dtype||'q8',cacheKey:crypto.createHash('sha256').update([profile.fingerprint,settings.queryPrefix,settings.documentPrefix].join('\0')).digest('hex'),queryPrefix:settings.queryPrefix,documentPrefix:settings.documentPrefix};}
 }
